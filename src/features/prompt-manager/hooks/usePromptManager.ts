@@ -22,6 +22,11 @@ export function usePromptManager() {
   const [loading, setLoading] = useState(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestDraft = useRef<{ id: string; patch: Partial<PromptItem> } | null>(null);
+  const templateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const templatesRef = useRef<TemplateItem[]>(templates);
+  useEffect(() => {
+    templatesRef.current = templates;
+  }, [templates]);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +49,11 @@ export function usePromptManager() {
   useEffect(
     () => () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      // 卸载时把还没落盘的模板修改立即写入
+      if (templateTimer.current) {
+        clearTimeout(templateTimer.current);
+        void saveTemplates(templatesRef.current);
+      }
     },
     [],
   );
@@ -142,22 +152,35 @@ export function usePromptManager() {
 
   /** 把当前选中的 Prompt 保存为模板 */
   const saveAsTemplate = useCallback(async () => {
+    if (templateTimer.current) clearTimeout(templateTimer.current);
     if (!activePrompt?.content) return;
     const template = createTemplateFromPrompt(activePrompt);
     const next = [template, ...templates];
+    templatesRef.current = next;
     setTemplates(next);
     await saveTemplates(next);
   }, [activePrompt, templates]);
 
-  /** 删除模板（不影响已创建的 Prompt） */
-  const removeTemplate = useCallback(
-    async (id: string) => {
-      const next = templates.filter((t) => t.id !== id);
+  /** 编辑模板（名称/内容）：本地即时更新，防抖落盘 */
+  const updateTemplate = useCallback(
+    (id: string, patch: Partial<Omit<TemplateItem, 'id' | 'createdAt'>>) => {
+      const next = templatesRef.current.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      templatesRef.current = next;
       setTemplates(next);
-      await saveTemplates(next);
+      if (templateTimer.current) clearTimeout(templateTimer.current);
+      templateTimer.current = setTimeout(() => void saveTemplates(next), AUTOSAVE_DELAY_MS);
     },
-    [templates],
+    [],
   );
+
+  /** 删除模板（不影响已创建的 Prompt） */
+  const removeTemplate = useCallback(async (id: string) => {
+    if (templateTimer.current) clearTimeout(templateTimer.current);
+    const next = templatesRef.current.filter((t) => t.id !== id);
+    templatesRef.current = next;
+    setTemplates(next);
+    await saveTemplates(next);
+  }, []);
 
   return {
     prompts,
@@ -172,5 +195,6 @@ export function usePromptManager() {
     saveAsTemplate,
     createFromTemplate,
     removeTemplate,
+    updateTemplate,
   };
 }

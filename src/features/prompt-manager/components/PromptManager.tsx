@@ -44,6 +44,7 @@ export default function PromptManager() {
     saveAsTemplate,
     createFromTemplate,
     removeTemplate,
+    updateTemplate,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
@@ -326,11 +327,12 @@ export default function PromptManager() {
         )}
       </aside>
 
-      {/* 编辑区：模板视图下展示模板预览 */}
+      {/* 编辑区：模板视图下直接编辑模板 */}
       <section className="flex min-w-0 flex-1 flex-col bg-white">
         {previewTemplate ? (
-          <TemplatePreview
+          <TemplateEditor
             template={previewTemplate}
+            onChange={(patch) => updateTemplate(previewTemplate.id, patch)}
             onCreate={() => handleCreateFromTemplate(previewTemplate.id)}
             onDelete={() => handleDeleteTemplate(previewTemplate.id)}
           />
@@ -466,13 +468,15 @@ function EmptyEditor({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-/** 模板只读预览：浏览内容后通过按钮显式创建或删除 */
-function TemplatePreview({
+/** 模板编辑面板：名称与内容可直接修改，防抖自动保存 */
+function TemplateEditor({
   template,
+  onChange,
   onCreate,
   onDelete,
 }: {
   template: TemplateItem;
+  onChange: (patch: Partial<Omit<TemplateItem, 'id' | 'createdAt'>>) => void;
   onCreate: () => void;
   onDelete: () => void;
 }) {
@@ -485,17 +489,23 @@ function TemplatePreview({
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-teal-50 text-teal-600 ring-1 ring-teal-100">
           <LayoutTemplate className="h-3.5 w-3.5" />
         </span>
-        <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-900">
-          {template.name}
-        </h2>
+        <input
+          value={template.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="模板名称"
+          className="min-w-0 flex-1 border-b border-transparent bg-transparent text-base font-semibold text-zinc-900 outline-none transition placeholder:text-zinc-300 hover:border-zinc-200 focus:border-teal-500"
+        />
         <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 ring-1 ring-teal-100">
-          模板预览
+          模板
         </span>
       </div>
 
       <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
         <span className="font-mono">{formatCount(template.content)}</span>
-        <span>存于 {formatUpdatedAt(template.createdAt)}</span>
+        <span className="flex items-center gap-1">
+          <PenLine className="h-3 w-3" />
+          修改后自动保存
+        </span>
       </div>
 
       <div className="mt-2 flex min-h-0 flex-1 bg-zinc-50/60">
@@ -512,34 +522,32 @@ function TemplatePreview({
         </div>
         <textarea
           value={template.content}
-          readOnly
+          onChange={(e) => onChange({ content: e.target.value })}
           spellCheck={false}
           wrap="off"
           onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
             if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
           }}
-          className="min-h-0 flex-1 resize-none cursor-default whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-600 outline-none"
+          placeholder="模板内容，基于它新建时会带入这里的内容"
+          className="min-h-0 flex-1 resize-none whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300"
         />
       </div>
 
-      <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3">
-        <span className="text-[11px] text-zinc-400">浏览模板内容，确认后再创建</span>
-        <span className="flex items-center gap-2">
-          <button
-            onClick={onDelete}
-            className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            删除模板
-          </button>
-          <button
-            onClick={onCreate}
-            className="flex items-center gap-1.5 rounded-md bg-teal-700 px-3.5 py-1.5 text-xs text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            基于模板新建
-          </button>
-        </span>
+      <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
+        <button
+          onClick={onDelete}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          删除模板
+        </button>
+        <button
+          onClick={onCreate}
+          className="flex items-center gap-1.5 rounded-md bg-teal-700 px-3.5 py-1.5 text-xs text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          基于模板新建
+        </button>
       </div>
     </>
   );
