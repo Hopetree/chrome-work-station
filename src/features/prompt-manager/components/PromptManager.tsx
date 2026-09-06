@@ -191,7 +191,7 @@ export default function PromptManager() {
                           onClick={() => selectPrompt(item.id)}
                           className={`w-full rounded-md px-2.5 py-2 text-left transition ${
                             active
-                              ? 'bg-white shadow-sm ring-1 ring-teal-600'
+                              ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
                               : 'hover:bg-white hover:shadow-sm'
                           }`}
                         >
