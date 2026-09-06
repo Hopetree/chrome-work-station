@@ -22,6 +22,9 @@ export function usePromptManager() {
     loadPrompts().then((items) => {
       if (cancelled) return;
       setPrompts(items);
+      // 默认选中最近编辑的一条，方便回来继续修改
+      const first = sortByUpdatedAtDesc(items)[0];
+      if (first) setActiveId(first.id);
       setLoading(false);
     });
     return () => {
@@ -50,12 +53,13 @@ export function usePromptManager() {
       await savePrompts(next);
       setPrompts(sortByUpdatedAtDesc(next));
       setStatus('saved');
-    } catch {
+    } catch (error) {
+      console.error('[prompt-manager] 自动保存失败', error);
       setStatus('dirty');
     }
   }, []);
 
-  /** 编辑当前选中的 prompt：先更新本地状态，再防抖落盘 */
+  /** 编辑当前选中的 prompt：先更新本地状态，再防抖落盘。防抖窗口内的多次修改合并为一次草稿 */
   const updateActive = useCallback(
     (patch: Partial<Omit<PromptItem, 'id'>>) => {
       if (!activeId) return;
@@ -65,7 +69,12 @@ export function usePromptManager() {
           prev.map((item) => (item.id === activeId ? { ...item, ...patch, updatedAt } : item)),
         ),
       );
-      latestDraft.current = { id: activeId, patch: { ...patch, updatedAt } };
+      const previous = latestDraft.current;
+      const mergedPatch =
+        previous && previous.id === activeId
+          ? { ...previous.patch, ...patch, updatedAt }
+          : { ...patch, updatedAt };
+      latestDraft.current = { id: activeId, patch: mergedPatch };
       setStatus('dirty');
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(persist, AUTOSAVE_DELAY_MS);

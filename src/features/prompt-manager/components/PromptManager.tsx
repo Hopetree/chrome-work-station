@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, UIEvent } from 'react';
 import { Check, Copy, FileText, Loader2, PenLine, Plus, Search, Trash2 } from 'lucide-react';
 import { usePromptManager } from '../hooks/usePromptManager';
 import { filterPrompts, formatCount, formatUpdatedAt } from '../utils';
@@ -10,6 +11,13 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
   saving: '保存中…',
   saved: '已保存',
 };
+
+const INDENT = '  ';
+
+/** 在编辑器里恢复光标/选区（React 受控更新后执行） */
+function restoreSelection(el: HTMLTextAreaElement, start: number, end: number) {
+  requestAnimationFrame(() => el.setSelectionRange(start, end));
+}
 
 export default function PromptManager() {
   const {
@@ -24,8 +32,10 @@ export default function PromptManager() {
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
+  const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
+  const lineCount = (activePrompt?.content ?? '').split('\n').length;
 
   const copyActive = async () => {
     if (!activePrompt?.content) return;
@@ -38,6 +48,41 @@ export default function PromptManager() {
     if (!activePrompt) return;
     if (window.confirm(`确定删除「${activePrompt.title}」？该操作不可撤销。`)) {
       removePrompt(activePrompt.id);
+    }
+  };
+
+  /** Tab 键用于编辑缩进，不做焦点切换：Tab 增加缩进，Shift+Tab 减少缩进 */
+  const handleEditorKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const { value, selectionStart: ss, selectionEnd: se } = el;
+    const lineStart = value.lastIndexOf('\n', ss - 1) + 1;
+    const isBlock = ss !== se && value.slice(ss, se).includes('\n');
+
+    if (e.shiftKey) {
+      if (isBlock) {
+        const block = value.slice(lineStart, se);
+        const outdented = block.replace(/^ {1,2}/gm, '');
+        updateActive({ content: value.slice(0, lineStart) + outdented + value.slice(se) });
+        restoreSelection(el, lineStart, lineStart + outdented.length);
+      } else {
+        const lineEnd = value.indexOf('\n', ss) === -1 ? value.length : value.indexOf('\n', ss);
+        const line = value.slice(lineStart, lineEnd);
+        const trimmed = line.replace(/^ {1,2}/, '');
+        if (trimmed.length === line.length) return;
+        updateActive({ content: value.slice(0, lineStart) + trimmed + value.slice(lineEnd) });
+        const cursor = Math.max(lineStart, ss - (line.length - trimmed.length));
+        restoreSelection(el, cursor, cursor);
+      }
+    } else if (isBlock) {
+      const block = value.slice(lineStart, se);
+      const indented = block.replace(/^/gm, INDENT);
+      updateActive({ content: value.slice(0, lineStart) + indented + value.slice(se) });
+      restoreSelection(el, lineStart + INDENT.length, lineStart + indented.length);
+    } else {
+      updateActive({ content: value.slice(0, ss) + INDENT + value.slice(se) });
+      restoreSelection(el, ss + INDENT.length, ss + INDENT.length);
     }
   };
 
@@ -123,17 +168,36 @@ export default function PromptManager() {
               <span className="font-mono">{formatCount(activePrompt.content)}</span>
               <span className="flex items-center gap-1">
                 <PenLine className="h-3 w-3" />
-                支持换行，修改后自动保存
+                Tab 缩进 · 修改后自动保存
               </span>
             </div>
 
-            <textarea
-              value={activePrompt.content}
-              onChange={(e) => updateActive({ content: e.target.value })}
-              placeholder="在这里编写 Prompt，可以自由换行…"
-              spellCheck={false}
-              className="mt-2 min-h-0 flex-1 resize-none bg-[linear-gradient(transparent_calc(100%_-_1px),theme(colors.zinc.100)_1px)] bg-[size:100%_1.75rem] px-5 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300"
-            />
+            <div className="flex min-h-0 flex-1">
+              {/* 行号栏：随编辑器滚动同步 */}
+              <div
+                ref={gutterRef}
+                aria-hidden
+                className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 bg-zinc-50 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
+              >
+                {Array.from({ length: lineCount }, (_, i) => (
+                  <div key={i} className="pr-2">
+                    {i + 1}
+                  </div>
+                ))}
+              </div>
+              <textarea
+                value={activePrompt.content}
+                onChange={(e) => updateActive({ content: e.target.value })}
+                onKeyDown={handleEditorKeyDown}
+                onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
+                  if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+                }}
+                placeholder="在这里编写 Prompt，可以自由换行…"
+                spellCheck={false}
+                wrap="off"
+                className="min-h-0 flex-1 resize-none whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300"
+              />
+            </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
               <button

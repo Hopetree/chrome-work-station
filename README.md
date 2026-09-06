@@ -49,6 +49,13 @@ npm run test           # Vitest 单测
 npm run generate-icons # 修改 public/icons/icon.svg 后重新生成 PNG
 ```
 
+### 不加载扩展快速预览 UI
+
+```bash
+npm run build && npm run preview
+# 打开 http://localhost:4173/workbench.html（storage 为内存模拟，刷新保留、关标签页即清空）
+```
+
 ## 加载到浏览器
 
 1. 打开 `chrome://extensions/`

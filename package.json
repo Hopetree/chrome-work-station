@@ -12,6 +12,7 @@
     "zip:firefox": "wxt zip -b firefox",
     "postinstall": "wxt prepare",
     "generate-icons": "node scripts/generate-icons.mjs",
+    "preview": "node scripts/preview-server.mjs",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
