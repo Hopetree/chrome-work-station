@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
   saved: '已保存',
 };
 
-const INDENT = '  ';
+const INDENT = '    ';
 
 /** 在编辑器里恢复光标/选区（React 受控更新后执行） */
 function restoreSelection(el: HTMLTextAreaElement, start: number, end: number) {
@@ -63,13 +63,13 @@ export default function PromptManager() {
     if (e.shiftKey) {
       if (isBlock) {
         const block = value.slice(lineStart, se);
-        const outdented = block.replace(/^ {1,2}/gm, '');
+        const outdented = block.replace(/^ {1,4}/gm, '');
         updateActive({ content: value.slice(0, lineStart) + outdented + value.slice(se) });
         restoreSelection(el, lineStart, lineStart + outdented.length);
       } else {
         const lineEnd = value.indexOf('\n', ss) === -1 ? value.length : value.indexOf('\n', ss);
         const line = value.slice(lineStart, lineEnd);
-        const trimmed = line.replace(/^ {1,2}/, '');
+        const trimmed = line.replace(/^ {1,4}/, '');
         if (trimmed.length === line.length) return;
         updateActive({ content: value.slice(0, lineStart) + trimmed + value.slice(lineEnd) });
         const cursor = Math.max(lineStart, ss - (line.length - trimmed.length));
