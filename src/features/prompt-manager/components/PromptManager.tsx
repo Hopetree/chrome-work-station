@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { usePromptManager } from '../hooks/usePromptManager';
 import { filterPrompts, formatCount, formatUpdatedAt } from '../utils';
-import type { SaveStatus } from '../types';
+import type { SaveStatus, TemplateItem } from '../types';
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
   idle: '',
@@ -48,11 +48,14 @@ export default function PromptManager() {
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<'prompts' | 'templates'>('prompts');
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [templateSaved, setTemplateSaved] = useState(false);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
   const lineCount = (activePrompt?.content ?? '').split('\n').length;
+  const previewTemplate =
+    view === 'templates' ? (templates.find((t) => t.id === previewTemplateId) ?? null) : null;
 
   const copyActive = async () => {
     if (!activePrompt?.content) return;
@@ -71,8 +74,26 @@ export default function PromptManager() {
   const handleCreateFromTemplate = async (id: string) => {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
+    setPreviewTemplateId(null);
     setView('prompts');
     await createFromTemplate(template);
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    const template = templates.find((t) => t.id === id);
+    if (!template) return;
+    if (!window.confirm(`删除模板「${template.name}」？已创建的 Prompt 不受影响。`)) return;
+    const remaining = templates.filter((t) => t.id !== id);
+    if (previewTemplateId === id) setPreviewTemplateId(remaining[0]?.id ?? null);
+    await removeTemplate(id);
+  };
+
+  /** 切到模板视图时默认选中第一个模板，方便浏览 */
+  const switchView = (next: 'prompts' | 'templates') => {
+    setView(next);
+    if (next === 'templates' && !previewTemplateId) {
+      setPreviewTemplateId(templates[0]?.id ?? null);
+    }
   };
 
   const deleteActive = () => {
@@ -130,7 +151,7 @@ export default function PromptManager() {
             <button
               role="tab"
               aria-selected={view === 'prompts'}
-              onClick={() => setView('prompts')}
+              onClick={() => switchView('prompts')}
               className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
                 view === 'prompts'
                   ? 'bg-white text-teal-800 shadow-sm'
@@ -142,7 +163,7 @@ export default function PromptManager() {
             <button
               role="tab"
               aria-selected={view === 'templates'}
-              onClick={() => setView('templates')}
+              onClick={() => switchView('templates')}
               className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
                 view === 'templates'
                   ? 'bg-white text-teal-800 shadow-sm'
@@ -227,50 +248,69 @@ export default function PromptManager() {
               </div>
             ) : (
               <ul className="space-y-1">
-                {templates.map((t) => (
-                  <li key={t.id} className="group relative">
-                    <button
-                      onClick={() => handleCreateFromTemplate(t.id)}
-                      title="基于此模板新建 Prompt"
-                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-8 text-left transition hover:bg-white hover:shadow-sm"
-                    >
-                      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-teal-50 text-teal-600 ring-1 ring-teal-100">
-                        <LayoutTemplate className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-zinc-800">
-                          {t.name}
+                {templates.map((t) => {
+                  const active = t.id === previewTemplateId;
+                  return (
+                    <li key={t.id} className="group relative">
+                      <button
+                        onClick={() => setPreviewTemplateId(t.id)}
+                        title="点击浏览模板内容"
+                        className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-8 text-left transition ${
+                          active
+                            ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
+                            : 'hover:bg-white hover:shadow-sm'
+                        }`}
+                      >
+                        <span
+                          className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ring-1 ${
+                            active
+                              ? 'bg-teal-600 text-white ring-teal-600'
+                              : 'bg-teal-50 text-teal-600 ring-teal-100'
+                          }`}
+                        >
+                          <LayoutTemplate className="h-3.5 w-3.5" />
                         </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                          {t.content ? t.content.split('\n')[0] : '（空）'}
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={`block truncate text-[13px] font-medium ${
+                              active ? 'text-teal-900' : 'text-zinc-800'
+                            }`}
+                          >
+                            {t.name}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+                            {t.content ? t.content.split('\n')[0] : '（空）'}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-zinc-400">
+                            存于 {formatUpdatedAt(t.createdAt)}
+                          </span>
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-zinc-400">
-                          存于 {formatUpdatedAt(t.createdAt)}
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`删除模板「${t.name}」？已创建的 Prompt 不受影响。`)) {
-                          removeTemplate(t.id);
-                        }
-                      }}
-                      title="删除模板"
-                      className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTemplate(t.id)}
+                        title="删除模板"
+                        className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
         )}
       </aside>
 
-      {/* 编辑区 */}
+      {/* 编辑区：模板视图下展示模板预览 */}
       <section className="flex min-w-0 flex-1 flex-col bg-white">
-        {activePrompt ? (
+        {previewTemplate ? (
+          <TemplatePreview
+            template={previewTemplate}
+            onCreate={() => handleCreateFromTemplate(previewTemplate.id)}
+            onDelete={() => handleDeleteTemplate(previewTemplate.id)}
+          />
+        ) : activePrompt ? (
           <>
             <div className="flex items-center gap-3 border-b border-zinc-100 px-5 pb-3 pt-4">
               <input
@@ -399,5 +439,84 @@ function EmptyEditor({ onAdd }: { onAdd: () => void }) {
         </span>
       </button>
     </div>
+  );
+}
+
+/** 模板只读预览：浏览内容后通过按钮显式创建或删除 */
+function TemplatePreview({
+  template,
+  onCreate,
+  onDelete,
+}: {
+  template: TemplateItem;
+  onCreate: () => void;
+  onDelete: () => void;
+}) {
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const lineCount = template.content.split('\n').length;
+
+  return (
+    <>
+      <div className="flex items-center gap-2.5 border-b border-zinc-100 px-5 pb-3 pt-4">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-teal-50 text-teal-600 ring-1 ring-teal-100">
+          <LayoutTemplate className="h-3.5 w-3.5" />
+        </span>
+        <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-900">
+          {template.name}
+        </h2>
+        <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 ring-1 ring-teal-100">
+          模板预览
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
+        <span className="font-mono">{formatCount(template.content)}</span>
+        <span>存于 {formatUpdatedAt(template.createdAt)}</span>
+      </div>
+
+      <div className="mt-2 flex min-h-0 flex-1 bg-zinc-50/60">
+        <div
+          ref={gutterRef}
+          aria-hidden
+          className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
+        >
+          {Array.from({ length: lineCount }, (_, i) => (
+            <div key={i} className="pr-2">
+              {i + 1}
+            </div>
+          ))}
+        </div>
+        <textarea
+          value={template.content}
+          readOnly
+          spellCheck={false}
+          wrap="off"
+          onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
+            if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+          }}
+          className="min-h-0 flex-1 resize-none cursor-default whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-600 outline-none"
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3">
+        <span className="text-[11px] text-zinc-400">浏览模板内容，确认后再创建</span>
+        <span className="flex items-center gap-2">
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            删除模板
+          </button>
+          <button
+            onClick={onCreate}
+            className="flex items-center gap-1.5 rounded-md bg-teal-700 px-3.5 py-1.5 text-xs text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            基于模板新建
+          </button>
+        </span>
+      </div>
+    </>
   );
 }
