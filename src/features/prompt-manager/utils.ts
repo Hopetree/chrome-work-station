@@ -32,7 +32,7 @@ export function createTemplateFromPrompt(prompt: PromptItem, now = Date.now()): 
 export function createPromptFromTemplate(template: TemplateItem, now = Date.now()): PromptItem {
   return {
     id: generateId(),
-    title: template.name,
+    title: template.name.trim() || '未命名模板',
     content: template.content,
     createdAt: now,
     updatedAt: now,

@@ -83,7 +83,12 @@ export default function PromptManager() {
   };
 
   const doCopy = async (id: string, text: string) => {
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error('[prompt-manager] 复制失败', error);
+      return; // 不计数、不提示已复制
+    }
     recordCopy(id);
     setPendingCopy(null);
     setCopied(true);
@@ -335,7 +340,7 @@ export default function PromptManager() {
                               active ? 'text-teal-900' : 'text-zinc-800'
                             }`}
                           >
-                            {t.name}
+                            {t.name || '未命名模板'}
                           </span>
                           <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
                             {t.content ? t.content.split('\n')[0] : '（空）'}

@@ -35,6 +35,7 @@ export default function Select({
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [dropUp, setDropUp] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const activeItemRef = useRef<HTMLButtonElement>(null);
@@ -68,6 +69,9 @@ export default function Select({
         options.findIndex((o) => o.value === value),
       ),
     );
+    // 视口下方放不下 240px 的面板且上方足够时，向上展开
+    const rect = rootRef.current?.getBoundingClientRect();
+    setDropUp(!!rect && window.innerHeight - rect.bottom < 240 && rect.top > 240);
     setOpen(true);
   };
 
@@ -131,7 +135,9 @@ export default function Select({
         <ul
           role="listbox"
           aria-label={placeholder}
-          className="panel-anim absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-lg"
+          className={`panel-anim absolute left-0 right-0 z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-lg ${
+            dropUp ? 'bottom-full mb-1' : 'top-full'
+          }`}
         >
           {options.map((option, index) => {
             const isSelected = option.value === value;

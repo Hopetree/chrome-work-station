@@ -40,7 +40,7 @@ export default function OptionsApp() {
     link.href = url;
     link.download = `chrome-work-station-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     setFeedback({
       kind: 'ok',
       text: `已导出 ${prompts.length} 条 Prompt、${templates.length} 个模板`,

@@ -70,11 +70,15 @@ export function usePromptManager() {
           : item,
       );
       await savePrompts(next);
+      if (latestDraft.current === draft) latestDraft.current = null;
       setPrompts(sortPrompts(next));
       setStatus('saved');
     } catch (error) {
       console.error('[prompt-manager] 自动保存失败', error);
       setStatus('dirty');
+      // 5 秒后重试一次，避免一次瞬时失败导致数据一直停留「有未保存修改」
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(persist, 5000);
     }
   }, []);
 
