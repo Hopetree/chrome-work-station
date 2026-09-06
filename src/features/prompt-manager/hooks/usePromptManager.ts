@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PromptItem, SaveStatus } from '../types';
-import { loadPrompts, savePrompts } from '../storage';
-import { createPromptItem, sortByUpdatedAtDesc } from '../utils';
+import type { PromptItem, SaveStatus, TemplateItem } from '../types';
+import { loadPrompts, loadTemplates, savePrompts, saveTemplates } from '../storage';
+import {
+  createPromptFromTemplate,
+  createPromptItem,
+  createTemplateFromPrompt,
+  sortByUpdatedAtDesc,
+} from '../utils';
 
 const AUTOSAVE_DELAY_MS = 600;
 
@@ -11,6 +16,7 @@ const AUTOSAVE_DELAY_MS = 600;
  */
 export function usePromptManager() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -26,6 +32,9 @@ export function usePromptManager() {
       const first = sortByUpdatedAtDesc(items)[0];
       if (first) setActiveId(first.id);
       setLoading(false);
+    });
+    loadTemplates().then((items) => {
+      if (!cancelled) setTemplates(items);
     });
     return () => {
       cancelled = true;
@@ -93,6 +102,21 @@ export function usePromptManager() {
     setStatus('saved');
   }, [persist, prompts]);
 
+  /** 基于模板创建新 Prompt */
+  const createFromTemplate = useCallback(
+    async (template: TemplateItem) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestDraft.current) await persist();
+      const item = createPromptFromTemplate(template);
+      const next = sortByUpdatedAtDesc([item, ...prompts]);
+      setPrompts(next);
+      setActiveId(item.id);
+      await savePrompts(next);
+      setStatus('saved');
+    },
+    [persist, prompts],
+  );
+
   const removePrompt = useCallback(
     async (id: string) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -116,8 +140,18 @@ export function usePromptManager() {
     [prompts, activeId],
   );
 
+  /** 把当前选中的 Prompt 保存为模板 */
+  const saveAsTemplate = useCallback(async () => {
+    if (!activePrompt?.content) return;
+    const template = createTemplateFromPrompt(activePrompt);
+    const next = [template, ...templates];
+    setTemplates(next);
+    await saveTemplates(next);
+  }, [activePrompt, templates]);
+
   return {
     prompts,
+    templates,
     activePrompt,
     loading,
     status,
@@ -125,5 +159,7 @@ export function usePromptManager() {
     updateActive,
     addPrompt,
     removePrompt,
+    saveAsTemplate,
+    createFromTemplate,
   };
 }

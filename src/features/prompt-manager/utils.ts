@@ -1,4 +1,4 @@
-import type { PromptItem } from './types';
+import type { PromptItem, TemplateItem } from './types';
 
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -12,6 +12,22 @@ export function createPromptItem(now = Date.now()): PromptItem {
     id: generateId(),
     title: '未命名 Prompt',
     content: '',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** 把一条 Prompt 的内容沉淀为模板 */
+export function createTemplateFromPrompt(prompt: PromptItem, now = Date.now()): TemplateItem {
+  return { id: generateId(), name: prompt.title, content: prompt.content, createdAt: now };
+}
+
+/** 基于模板创建新 Prompt */
+export function createPromptFromTemplate(template: TemplateItem, now = Date.now()): PromptItem {
+  return {
+    id: generateId(),
+    title: template.name,
+    content: template.content,
     createdAt: now,
     updatedAt: now,
   };

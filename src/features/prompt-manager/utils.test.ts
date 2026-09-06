@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { createPromptItem, filterPrompts, formatUpdatedAt, sortByUpdatedAtDesc } from './utils';
+import {
+  createPromptFromTemplate,
+  createPromptItem,
+  createTemplateFromPrompt,
+  filterPrompts,
+  formatUpdatedAt,
+  sortByUpdatedAtDesc,
+} from './utils';
+
+describe('createTemplateFromPrompt', () => {
+  it('copies title as name and content', () => {
+    const prompt = { id: 'p1', title: '审查', content: '正文', createdAt: 1, updatedAt: 2 };
+    const t = createTemplateFromPrompt(prompt, 100);
+    expect(t).toEqual({ id: t.id, name: '审查', content: '正文', createdAt: 100 });
+    expect(t.id).not.toBe(prompt.id);
+  });
+});
+
+describe('createPromptFromTemplate', () => {
+  it('creates a fresh prompt from template content', () => {
+    const t = { id: 't1', name: '周报', content: '模板内容', createdAt: 1 };
+    const p = createPromptFromTemplate(t, 200);
+    expect(p).toEqual({
+      id: p.id,
+      title: '周报',
+      content: '模板内容',
+      createdAt: 200,
+      updatedAt: 200,
+    });
+    expect(p.id).not.toBe(t.id);
+  });
+});
 
 describe('createPromptItem', () => {
   it('creates an untitled prompt with timestamps', () => {

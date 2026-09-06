@@ -1,6 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, UIEvent } from 'react';
-import { Check, Copy, FileText, Loader2, PenLine, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  BookmarkPlus,
+  Check,
+  Copy,
+  FileText,
+  LayoutTemplate,
+  Loader2,
+  PenLine,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import { usePromptManager } from '../hooks/usePromptManager';
 import { filterPrompts, formatCount, formatUpdatedAt } from '../utils';
 import type { SaveStatus } from '../types';
@@ -29,9 +40,14 @@ export default function PromptManager() {
     updateActive,
     addPrompt,
     removePrompt,
+    templates,
+    saveAsTemplate,
+    createFromTemplate,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
@@ -42,6 +58,20 @@ export default function PromptManager() {
     await navigator.clipboard.writeText(activePrompt.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (!activePrompt?.content) return;
+    await saveAsTemplate();
+    setTemplateSaved(true);
+    setTimeout(() => setTemplateSaved(false), 1500);
+  };
+
+  const handleCreateFromTemplate = async (id: string) => {
+    const template = templates.find((t) => t.id === id);
+    if (!template) return;
+    setShowTemplates(false);
+    await createFromTemplate(template);
   };
 
   const deleteActive = () => {
@@ -90,7 +120,7 @@ export default function PromptManager() {
     <div className="flex h-full min-h-0">
       {/* 列表栏 */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
-        <div className="flex items-center gap-2 px-3 pt-3">
+        <div className="relative flex items-center gap-2 px-3 pt-3">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
@@ -101,12 +131,59 @@ export default function PromptManager() {
             />
           </div>
           <button
+            onClick={() => setShowTemplates((v) => !v)}
+            title="从模板创建"
+            aria-expanded={showTemplates}
+            className={`rounded-md border p-1.5 shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+              showTemplates
+                ? 'border-teal-600 bg-teal-50 text-teal-700'
+                : 'border-zinc-200 bg-white text-zinc-600 hover:border-teal-600 hover:text-teal-700'
+            }`}
+          >
+            <LayoutTemplate className="h-4 w-4" />
+          </button>
+          <button
             onClick={addPrompt}
             title="新建 Prompt"
             className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
           >
             <Plus className="h-4 w-4" />
           </button>
+
+          {/* 模板选择面板 */}
+          {showTemplates && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowTemplates(false)} />
+              <div className="absolute left-3 right-3 top-full z-20 mt-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg">
+                <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-zinc-400">
+                  从模板创建新 Prompt
+                </p>
+                {templates.length === 0 ? (
+                  <p className="px-2.5 pb-2.5 pt-1 text-xs leading-5 text-zinc-400">
+                    还没有模板。在编辑区点「存为模板」，之后就能基于它快速新建。
+                  </p>
+                ) : (
+                  <ul>
+                    {templates.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          onClick={() => handleCreateFromTemplate(t.id)}
+                          className="w-full rounded-md px-2.5 py-2 text-left transition hover:bg-teal-50"
+                        >
+                          <span className="block truncate text-[13px] font-medium text-zinc-800">
+                            {t.name}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+                            {t.content ? t.content.split('\n')[0] : '（空）'}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
@@ -200,6 +277,19 @@ export default function PromptManager() {
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
+              <button
+                onClick={handleSaveAsTemplate}
+                disabled={!activePrompt.content}
+                title="把当前内容保存为模板，之后可基于它新建"
+                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                  templateSaved
+                    ? 'border-teal-600 bg-teal-50 text-teal-700'
+                    : 'border-zinc-200 text-zinc-600 hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-200 disabled:hover:bg-transparent disabled:hover:text-zinc-600'
+                }`}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+                {templateSaved ? '已存为模板' : '存为模板'}
+              </button>
               <button
                 onClick={deleteActive}
                 className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
