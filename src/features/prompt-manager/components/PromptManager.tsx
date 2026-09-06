@@ -176,7 +176,7 @@ export default function PromptManager() {
               </button>
             </div>
 
-            <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
+            <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
               {loading ? (
                 <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
               ) : visible.length === 0 ? (
@@ -217,7 +217,7 @@ export default function PromptManager() {
             </div>
           </>
         ) : (
-          <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
+          <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
             {templates.length === 0 ? (
               <div className="px-2 py-4 text-xs leading-5 text-zinc-400">
                 还没有模板。
