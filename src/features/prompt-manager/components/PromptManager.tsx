@@ -43,10 +43,11 @@ export default function PromptManager() {
     templates,
     saveAsTemplate,
     createFromTemplate,
+    removeTemplate,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
+  const [view, setView] = useState<'prompts' | 'templates'>('prompts');
   const [templateSaved, setTemplateSaved] = useState(false);
   const gutterRef = useRef<HTMLDivElement>(null);
 
@@ -70,7 +71,7 @@ export default function PromptManager() {
   const handleCreateFromTemplate = async (id: string) => {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
-    setShowTemplates(false);
+    setView('prompts');
     await createFromTemplate(template);
   };
 
@@ -118,113 +119,153 @@ export default function PromptManager() {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* 列表栏 */}
+      {/* 列表栏：Prompt 与模板分列表展示 */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
-        <div className="relative flex items-center gap-2 px-3 pt-3">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索标题或正文"
-              className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-8 pr-2 text-xs text-zinc-700 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-            />
+        <div className="px-3 pt-3">
+          <div
+            className="flex rounded-lg bg-zinc-200/70 p-0.5"
+            role="tablist"
+            aria-label="列表切换"
+          >
+            <button
+              role="tab"
+              aria-selected={view === 'prompts'}
+              onClick={() => setView('prompts')}
+              className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                view === 'prompts'
+                  ? 'bg-white text-teal-800 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              Prompt {prompts.length}
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === 'templates'}
+              onClick={() => setView('templates')}
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                view === 'templates'
+                  ? 'bg-white text-teal-800 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              <LayoutTemplate className="h-3 w-3" />
+              模板 {templates.length}
+            </button>
           </div>
-          <button
-            onClick={() => setShowTemplates((v) => !v)}
-            title="从模板创建"
-            aria-expanded={showTemplates}
-            className={`rounded-md border p-1.5 shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-              showTemplates
-                ? 'border-teal-600 bg-teal-50 text-teal-700'
-                : 'border-zinc-200 bg-white text-zinc-600 hover:border-teal-600 hover:text-teal-700'
-            }`}
-          >
-            <LayoutTemplate className="h-4 w-4" />
-          </button>
-          <button
-            onClick={addPrompt}
-            title="新建 Prompt"
-            className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+        </div>
 
-          {/* 模板选择面板 */}
-          {showTemplates && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowTemplates(false)} />
-              <div className="absolute left-3 right-3 top-full z-20 mt-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg">
-                <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-zinc-400">
-                  从模板创建新 Prompt
-                </p>
-                {templates.length === 0 ? (
-                  <p className="px-2.5 pb-2.5 pt-1 text-xs leading-5 text-zinc-400">
-                    还没有模板。在编辑区点「存为模板」，之后就能基于它快速新建。
-                  </p>
-                ) : (
-                  <ul>
-                    {templates.map((t) => (
-                      <li key={t.id}>
+        {view === 'prompts' ? (
+          <>
+            <div className="flex items-center gap-2 px-3 pt-3">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索标题或正文"
+                  className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-8 pr-2 text-xs text-zinc-700 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+              <button
+                onClick={addPrompt}
+                title="新建 Prompt"
+                className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
+              {loading ? (
+                <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
+              ) : visible.length === 0 ? (
+                <EmptyList hasPrompts={prompts.length > 0} />
+              ) : (
+                <ul className="space-y-1">
+                  {visible.map((item) => {
+                    const active = item.id === activePrompt?.id;
+                    return (
+                      <li key={item.id}>
                         <button
-                          onClick={() => handleCreateFromTemplate(t.id)}
-                          className="w-full rounded-md px-2.5 py-2 text-left transition hover:bg-teal-50"
+                          onClick={() => selectPrompt(item.id)}
+                          className={`w-full rounded-md px-2.5 py-2 text-left transition ${
+                            active
+                              ? 'bg-white shadow-sm ring-1 ring-teal-600'
+                              : 'hover:bg-white hover:shadow-sm'
+                          }`}
                         >
-                          <span className="block truncate text-[13px] font-medium text-zinc-800">
-                            {t.name}
+                          <span
+                            className={`block truncate text-[13px] font-medium ${
+                              active ? 'text-teal-900' : 'text-zinc-800'
+                            }`}
+                          >
+                            {item.title || '未命名 Prompt'}
                           </span>
                           <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                            {t.content ? t.content.split('\n')[0] : '（空）'}
+                            {item.content ? item.content.split('\n')[0] : '（空）'}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-zinc-400">
+                            {formatUpdatedAt(item.updatedAt)}
                           </span>
                         </button>
                       </li>
-                    ))}
-                  </ul>
-                )}
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
+            {templates.length === 0 ? (
+              <div className="px-2 py-4 text-xs leading-5 text-zinc-400">
+                还没有模板。
+                <br />
+                选中一条 Prompt
+                后点编辑区下方的「存为模板」，它就会出现在这里，之后可一键基于它新建。
               </div>
-            </>
-          )}
-        </div>
-
-        <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
-          {loading ? (
-            <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
-          ) : visible.length === 0 ? (
-            <EmptyList hasPrompts={prompts.length > 0} />
-          ) : (
-            <ul className="space-y-1">
-              {visible.map((item) => {
-                const active = item.id === activePrompt?.id;
-                return (
-                  <li key={item.id}>
+            ) : (
+              <ul className="space-y-1">
+                {templates.map((t) => (
+                  <li key={t.id} className="group relative">
                     <button
-                      onClick={() => selectPrompt(item.id)}
-                      className={`w-full rounded-md px-2.5 py-2 text-left transition ${
-                        active
-                          ? 'bg-white shadow-sm ring-1 ring-teal-600'
-                          : 'hover:bg-white hover:shadow-sm'
-                      }`}
+                      onClick={() => handleCreateFromTemplate(t.id)}
+                      title="基于此模板新建 Prompt"
+                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-8 text-left transition hover:bg-white hover:shadow-sm"
                     >
-                      <span
-                        className={`block truncate text-[13px] font-medium ${
-                          active ? 'text-teal-900' : 'text-zinc-800'
-                        }`}
-                      >
-                        {item.title || '未命名 Prompt'}
+                      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-teal-50 text-teal-600 ring-1 ring-teal-100">
+                        <LayoutTemplate className="h-3.5 w-3.5" />
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                        {item.content ? item.content.split('\n')[0] : '（空）'}
-                      </span>
-                      <span className="mt-0.5 block text-[11px] text-zinc-400">
-                        {formatUpdatedAt(item.updatedAt)}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-zinc-800">
+                          {t.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+                          {t.content ? t.content.split('\n')[0] : '（空）'}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-zinc-400">
+                          存于 {formatUpdatedAt(t.createdAt)}
+                        </span>
                       </span>
                     </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`删除模板「${t.name}」？已创建的 Prompt 不受影响。`)) {
+                          removeTemplate(t.id);
+                        }
+                      }}
+                      title="删除模板"
+                      className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </aside>
 
       {/* 编辑区 */}

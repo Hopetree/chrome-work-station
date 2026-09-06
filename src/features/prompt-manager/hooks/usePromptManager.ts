@@ -149,6 +149,16 @@ export function usePromptManager() {
     await saveTemplates(next);
   }, [activePrompt, templates]);
 
+  /** 删除模板（不影响已创建的 Prompt） */
+  const removeTemplate = useCallback(
+    async (id: string) => {
+      const next = templates.filter((t) => t.id !== id);
+      setTemplates(next);
+      await saveTemplates(next);
+    },
+    [templates],
+  );
+
   return {
     prompts,
     templates,
@@ -161,5 +171,6 @@ export function usePromptManager() {
     removePrompt,
     saveAsTemplate,
     createFromTemplate,
+    removeTemplate,
   };
 }
