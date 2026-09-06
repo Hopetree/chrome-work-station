@@ -270,7 +270,7 @@ export default function PromptManager() {
                       <button
                         onClick={() => setPreviewTemplateId(t.id)}
                         title="点击浏览模板内容"
-                        className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-8 text-left transition ${
+                        className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-16 text-left transition ${
                           active
                             ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
                             : 'hover:bg-white hover:shadow-sm'
@@ -301,13 +301,22 @@ export default function PromptManager() {
                           </span>
                         </span>
                       </button>
-                      <button
-                        onClick={() => handleDeleteTemplate(t.id)}
-                        title="删除模板"
-                        className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                        <button
+                          onClick={() => handleCreateFromTemplate(t.id)}
+                          title="基于此模板新建 Prompt"
+                          className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          title="删除模板"
+                          className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
                     </li>
                   );
                 })}
