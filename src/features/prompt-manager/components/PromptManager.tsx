@@ -207,10 +207,10 @@ export default function PromptManager() {
                   {visible.map((item) => {
                     const active = item.id === activePrompt?.id;
                     return (
-                      <li key={item.id}>
+                      <li key={item.id} className="group relative">
                         <button
                           onClick={() => selectPrompt(item.id)}
-                          className={`w-full rounded-md px-2.5 py-2 text-left transition ${
+                          className={`w-full rounded-md px-2.5 py-2 pr-8 text-left transition ${
                             active
                               ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
                               : 'hover:bg-white hover:shadow-sm'
@@ -229,6 +229,21 @@ export default function PromptManager() {
                           <span className="mt-0.5 block text-[11px] text-zinc-400">
                             {formatUpdatedAt(item.updatedAt)}
                           </span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `确定删除「${item.title || '未命名 Prompt'}」？该操作不可撤销。`,
+                              )
+                            ) {
+                              removePrompt(item.id);
+                            }
+                          }}
+                          title="删除 Prompt"
+                          className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </li>
                     );
