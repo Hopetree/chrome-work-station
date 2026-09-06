@@ -1,0 +1,33 @@
+{
+  "last_reviewed_commit": null,
+  "last_reviewed_commit_short": null,
+  "last_review_date": null,
+  "last_review_summary": null,
+  "documents_updated": [],
+  "documents": [
+    {
+      "path": "CLAUDE.md",
+      "type": "README",
+      "description": "AI 开发指南：项目约定、命令、数据存储键、关键机制速查（AGENTS.md 为其软链）",
+      "created_at": "2026-09-06"
+    },
+    {
+      "path": "docs/design/01_PRD_产品需求规格说明书.md",
+      "type": "PRD",
+      "description": "产品定位、功能需求（Prompt 管理/模板/备份）、明确不做、验收标准",
+      "created_at": "2026-09-06"
+    },
+    {
+      "path": "docs/design/02_TDD_技术设计文档.md",
+      "type": "TDD",
+      "description": "技术栈（WXT 0.19 锁定）、架构与功能注册表、数据层 schema、自动保存/变量复制/备份合并流程、通用控件",
+      "created_at": "2026-09-06"
+    },
+    {
+      "path": "README.md",
+      "type": "README",
+      "description": "项目自述：功能列表、结构、开发命令、文档索引",
+      "created_at": "2026-09-06"
+    }
+  ]
+}

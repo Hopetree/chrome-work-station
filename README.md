@@ -4,6 +4,16 @@
 
 基于 **WXT + React + TypeScript + Tailwind CSS** 构建，图标使用 Lucide 图标库。
 
+> AI 开发请先读 [CLAUDE.md](./CLAUDE.md)（与 AGENTS.md 同源），设计文档见下表。
+
+## 文档索引
+
+| 文档 | 说明 |
+|------|------|
+| [CLAUDE.md](./CLAUDE.md) | AI 开发指南：约定、命令、数据键、关键机制（**必读**） |
+| [01 PRD 产品需求规格](./docs/design/01_PRD_产品需求规格说明书.md) | 产品定位、功能需求、明确不做、验收标准 |
+| [02 TDD 技术设计文档](./docs/design/02_TDD_技术设计文档.md) | 技术栈、架构、数据层、关键流程设计 |
+
 ## 功能列表
 
 | 功能 | 说明 |
