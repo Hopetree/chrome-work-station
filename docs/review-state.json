@@ -1,8 +1,8 @@
 {
-  "last_reviewed_commit": null,
-  "last_reviewed_commit_short": null,
-  "last_review_date": null,
-  "last_review_summary": null,
+  "last_reviewed_commit": "5ff9a5833d9d37e9d16f21ea522ac93b2ef51122",
+  "last_reviewed_commit_short": "5ff9a58",
+  "last_review_date": "2026-09-06",
+  "last_review_summary": "首次评审：覆盖项目初始化至今全部代码提交（c739bad..f35fd20）。发现 6 个问题（4🟡 2🟢），主要是模板空名称兜底、剪贴板失败未捕获、persist 过期草稿未清空、自动保存失败无重试等健壮性问题，详见 docs/code-review.md。文档与代码现状一致，无需更新设计文档。",
   "documents_updated": [],
   "documents": [
     {
@@ -27,6 +27,12 @@
       "path": "README.md",
       "type": "README",
       "description": "项目自述：功能列表、结构、开发命令、文档索引",
+      "created_at": "2026-09-06"
+    },
+    {
+      "path": "docs/code-review.md",
+      "type": "CODE_REVIEW",
+      "description": "代码评审报告：问题总览与修复方案（含精确位置与修复代码）",
       "created_at": "2026-09-06"
     }
   ]
