@@ -8,6 +8,7 @@ import {
 } from '@/features/prompt-manager/storage';
 import { visibleFeatures } from '@/features/registry';
 import { buildBackup, mergeBackup } from '@/lib/backup';
+import Select from '@/components/ui/Select';
 import { getDefaultFeatureId, setDefaultFeatureId } from '@/lib/settings';
 
 type Feedback = { kind: 'ok' | 'error'; text: string } | null;
@@ -86,25 +87,20 @@ export default function OptionsApp() {
       </header>
 
       <section className="mt-8 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <label htmlFor="default-feature" className="block text-[13px] font-medium">
+        <span id="default-feature-label" className="block text-[13px] font-medium">
           点击「打开工作台」时默认进入
-        </label>
+        </span>
         <p className="mt-1 text-xs text-zinc-500">
           在 popup 中点工具卡片始终直达对应功能，不受此项影响。
         </p>
         <div className="mt-3 flex items-center gap-3">
-          <select
-            id="default-feature"
+          <Select
+            ariaLabel="点击「打开工作台」时默认进入"
             value={defaultId}
-            onChange={(e) => changeDefault(e.target.value)}
-            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-[13px] outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-          >
-            {visibleFeatures.map((feature) => (
-              <option key={feature.id} value={feature.id}>
-                {feature.name}
-              </option>
-            ))}
-          </select>
+            options={visibleFeatures.map((feature) => ({ value: feature.id, label: feature.name }))}
+            onChange={changeDefault}
+            className="w-44"
+          />
           {saved && (
             <span className="flex items-center gap-1 text-xs text-teal-700" role="status">
               <Check className="h-3 w-3" />

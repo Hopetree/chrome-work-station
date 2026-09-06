@@ -17,3 +17,24 @@ body {
 #root {
   min-width: 320px;
 }
+
+/* 自定义下拉面板入场动效（src/components/ui/Select.tsx） */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.panel-anim {
+  animation: panel-in 120ms ease-out;
+  transform-origin: top;
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-anim {
+    animation: none;
+  }
+}

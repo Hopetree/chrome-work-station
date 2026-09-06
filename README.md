@@ -39,6 +39,12 @@ src/
 2. 目录内 `index.ts` 导出一个 `FeatureModule`（id、名称、图标、主组件）
 3. 在 `src/features/registry.ts` 中注册即可 —— popup 菜单、工作台侧边栏、设置页自动出现
 
+### UI 约定
+
+禁止使用浏览器原生控件的默认外观（原生 `select`、`confirm`、`alert` 等）。
+下拉选择统一使用 `src/components/ui/Select.tsx`；新的通用控件一律放入 `src/components/ui/`，
+与整体青绿/冷灰设计语言保持一致。
+
 ## 开发
 
 ```bash
