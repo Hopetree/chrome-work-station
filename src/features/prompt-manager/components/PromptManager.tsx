@@ -14,9 +14,10 @@ import {
   Trash2,
 } from 'lucide-react';
 import CopyDialog from './CopyDialog';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { usePromptManager } from '../hooks/usePromptManager';
 import { extractVariables, filterPrompts, formatCount, formatUpdatedAt } from '../utils';
-import type { SaveStatus, TemplateItem } from '../types';
+import type { PromptItem, SaveStatus, TemplateItem } from '../types';
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
   idle: '',
@@ -57,6 +58,8 @@ export default function PromptManager() {
   const [templateSaved, setTemplateSaved] = useState(false);
   const [pendingCopy, setPendingCopy] = useState<{ id: string; content: string } | null>(null);
   const [varValues, setVarValues] = useState<Record<string, string>>({});
+  const [deletingPrompt, setDeletingPrompt] = useState<PromptItem | null>(null);
+  const [deletingTemplate, setDeletingTemplate] = useState<TemplateItem | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
@@ -108,9 +111,6 @@ export default function PromptManager() {
   };
 
   const handleDeleteTemplate = async (id: string) => {
-    const template = templates.find((t) => t.id === id);
-    if (!template) return;
-    if (!window.confirm(`删除模板「${template.name}」？已创建的 Prompt 不受影响。`)) return;
     const remaining = templates.filter((t) => t.id !== id);
     if (previewTemplateId === id) setPreviewTemplateId(remaining[0]?.id ?? null);
     await removeTemplate(id);
@@ -126,9 +126,7 @@ export default function PromptManager() {
 
   const deleteActive = () => {
     if (!activePrompt) return;
-    if (window.confirm(`确定删除「${activePrompt.title}」？该操作不可撤销。`)) {
-      removePrompt(activePrompt.id);
-    }
+    setDeletingPrompt(activePrompt);
   };
 
   /** Tab 键用于编辑缩进，不做焦点切换：Tab 增加缩进，Shift+Tab 减少缩进 */
@@ -284,15 +282,7 @@ export default function PromptManager() {
                             <Copy className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `确定删除「${item.title || '未命名 Prompt'}」？该操作不可撤销。`,
-                                )
-                              ) {
-                                removePrompt(item.id);
-                              }
-                            }}
+                            onClick={() => setDeletingPrompt(item)}
                             title="删除 Prompt"
                             className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
                           >
@@ -364,7 +354,7 @@ export default function PromptManager() {
                           <Plus className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteTemplate(t.id)}
+                          onClick={() => setDeletingTemplate(t)}
                           title="删除模板"
                           className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
                         >
@@ -497,6 +487,30 @@ export default function PromptManager() {
           onClose={() => setPendingCopy(null)}
         />
       )}
+
+      {/* 删除确认弹窗 */}
+      <ConfirmDialog
+        open={!!deletingPrompt}
+        onOpenChange={(o) => !o && setDeletingPrompt(null)}
+        title="删除 Prompt"
+        description={`「${deletingPrompt?.title || '未命名 Prompt'}」将被永久删除，该操作不可撤销。`}
+        confirmText="删除"
+        onConfirm={() => {
+          if (deletingPrompt) void removePrompt(deletingPrompt.id);
+          setDeletingPrompt(null);
+        }}
+      />
+      <ConfirmDialog
+        open={!!deletingTemplate}
+        onOpenChange={(o) => !o && setDeletingTemplate(null)}
+        title="删除模板"
+        description={`「${deletingTemplate?.name ?? ''}」将被删除，已创建的 Prompt 不受影响。`}
+        confirmText="删除"
+        onConfirm={() => {
+          if (deletingTemplate) void handleDeleteTemplate(deletingTemplate.id);
+          setDeletingTemplate(null);
+        }}
+      />
     </div>
   );
 }
