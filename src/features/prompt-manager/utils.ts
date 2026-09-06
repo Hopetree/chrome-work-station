@@ -19,7 +19,13 @@ export function createPromptItem(now = Date.now()): PromptItem {
 
 /** 把一条 Prompt 的内容沉淀为模板 */
 export function createTemplateFromPrompt(prompt: PromptItem, now = Date.now()): TemplateItem {
-  return { id: generateId(), name: prompt.title, content: prompt.content, createdAt: now };
+  return {
+    id: generateId(),
+    name: prompt.title,
+    content: prompt.content,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /** 基于模板创建新 Prompt */
@@ -33,6 +39,30 @@ export function createPromptFromTemplate(template: TemplateItem, now = Date.now(
   };
 }
 
+const VARIABLE_RE = /\{\{\s*([^{}\n]+?)\s*\}\}/g;
+
+/** 提取内容中的 {{变量}}，按出现顺序去重 */
+export function extractVariables(content: string): string[] {
+  const seen = new Set<string>();
+  for (const match of content.matchAll(VARIABLE_RE)) seen.add(match[1]);
+  return [...seen];
+}
+
+/** 用 values 填充变量；空白值视为未填写，保留原文 */
+export function fillVariables(content: string, values: Record<string, string>): string {
+  return content.replace(VARIABLE_RE, (raw, name: string) => {
+    const value = values[name];
+    return value && value.trim().length > 0 ? value : raw;
+  });
+}
+
+/** 排序：置顶优先，其余按最近修改 */
+export function sortPrompts(prompts: PromptItem[]): PromptItem[] {
+  return [...prompts].sort(
+    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt,
+  );
+}
+
 /** 按关键词过滤：标题或正文包含即命中，空关键词返回全部 */
 export function filterPrompts(prompts: PromptItem[], query: string): PromptItem[] {
   const keyword = query.trim().toLowerCase();
@@ -43,9 +73,6 @@ export function filterPrompts(prompts: PromptItem[], query: string): PromptItem[
 }
 
 /** 最近修改的排前面 */
-export function sortByUpdatedAtDesc(prompts: PromptItem[]): PromptItem[] {
-  return [...prompts].sort((a, b) => b.updatedAt - a.updatedAt);
-}
 
 export function formatCount(content: string): string {
   const chars = content.length;

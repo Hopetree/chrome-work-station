@@ -10,10 +10,12 @@ import {
   PenLine,
   Plus,
   Search,
+  Star,
   Trash2,
 } from 'lucide-react';
+import CopyDialog from './CopyDialog';
 import { usePromptManager } from '../hooks/usePromptManager';
-import { filterPrompts, formatCount, formatUpdatedAt } from '../utils';
+import { extractVariables, filterPrompts, formatCount, formatUpdatedAt } from '../utils';
 import type { SaveStatus, TemplateItem } from '../types';
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
@@ -45,24 +47,49 @@ export default function PromptManager() {
     createFromTemplate,
     removeTemplate,
     updateTemplate,
+    togglePin,
+    recordCopy,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<'prompts' | 'templates'>('prompts');
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [templateSaved, setTemplateSaved] = useState(false);
+  const [pendingCopy, setPendingCopy] = useState<{ id: string; content: string } | null>(null);
+  const [varValues, setVarValues] = useState<Record<string, string>>({});
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
   const lineCount = (activePrompt?.content ?? '').split('\n').length;
   const previewTemplate =
     view === 'templates' ? (templates.find((t) => t.id === previewTemplateId) ?? null) : null;
+  const sortedTemplates = useMemo(
+    () =>
+      [...templates].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)),
+    [templates],
+  );
 
-  const copyActive = async () => {
-    if (!activePrompt?.content) return;
-    await navigator.clipboard.writeText(activePrompt.content);
+  /** 复制入口：有变量先弹填空面板，否则直接复制 */
+  const requestCopy = (id: string, content: string) => {
+    if (!content) return;
+    if (extractVariables(content).length > 0) {
+      setPendingCopy({ id, content });
+    } else {
+      void doCopy(id, content);
+    }
+  };
+
+  const doCopy = async (id: string, text: string) => {
+    await navigator.clipboard.writeText(text);
+    recordCopy(id);
+    setPendingCopy(null);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const copyActive = () => {
+    if (!activePrompt?.content) return;
+    requestCopy(activePrompt.id, activePrompt.content);
   };
 
   const handleSaveAsTemplate = async () => {
@@ -211,41 +238,67 @@ export default function PromptManager() {
                       <li key={item.id} className="group relative">
                         <button
                           onClick={() => selectPrompt(item.id)}
-                          className={`w-full rounded-md px-2.5 py-2 pr-8 text-left transition ${
+                          className={`w-full rounded-md px-2.5 py-2 pr-20 text-left transition ${
                             active
                               ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
                               : 'hover:bg-white hover:shadow-sm'
                           }`}
                         >
                           <span
-                            className={`block truncate text-[13px] font-medium ${
+                            className={`flex items-center gap-1 text-[13px] font-medium ${
                               active ? 'text-teal-900' : 'text-zinc-800'
                             }`}
                           >
-                            {item.title || '未命名 Prompt'}
+                            {item.pinned && (
+                              <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
+                            )}
+                            <span className="truncate">{item.title || '未命名 Prompt'}</span>
                           </span>
                           <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
                             {item.content ? item.content.split('\n')[0] : '（空）'}
                           </span>
-                          <span className="mt-0.5 block text-[11px] text-zinc-400">
+                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+                            {item.copyCount ? `${item.copyCount} 次使用 · ` : ''}
                             {formatUpdatedAt(item.updatedAt)}
                           </span>
                         </button>
-                        <button
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `确定删除「${item.title || '未命名 Prompt'}」？该操作不可撤销。`,
-                              )
-                            ) {
-                              removePrompt(item.id);
-                            }
-                          }}
-                          title="删除 Prompt"
-                          className="absolute right-2 top-2 rounded p-1 text-zinc-300 opacity-0 transition hover:bg-red-50 hover:text-red-500 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400 group-hover:opacity-100"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                          <button
+                            onClick={() => togglePin(item.id)}
+                            title={item.pinned ? '取消置顶' : '置顶'}
+                            className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                              item.pinned
+                                ? 'text-amber-400 hover:bg-amber-50'
+                                : 'text-zinc-400 hover:bg-amber-50 hover:text-amber-500'
+                            }`}
+                          >
+                            <Star
+                              className={`h-3.5 w-3.5 ${item.pinned ? 'fill-amber-400' : ''}`}
+                            />
+                          </button>
+                          <button
+                            onClick={() => requestCopy(item.id, item.content)}
+                            title="复制全文"
+                            className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `确定删除「${item.title || '未命名 Prompt'}」？该操作不可撤销。`,
+                                )
+                              ) {
+                                removePrompt(item.id);
+                              }
+                            }}
+                            title="删除 Prompt"
+                            className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
                       </li>
                     );
                   })}
@@ -264,7 +317,7 @@ export default function PromptManager() {
               </div>
             ) : (
               <ul className="space-y-1">
-                {templates.map((t) => {
+                {sortedTemplates.map((t) => {
                   const active = t.id === previewTemplateId;
                   return (
                     <li key={t.id} className="group relative">
@@ -345,11 +398,25 @@ export default function PromptManager() {
                 placeholder="Prompt 标题"
                 className="min-w-0 flex-1 border-b border-transparent bg-transparent text-base font-semibold text-zinc-900 outline-none transition placeholder:text-zinc-300 hover:border-zinc-200 focus:border-teal-500"
               />
+              <button
+                onClick={() => togglePin(activePrompt.id)}
+                title={activePrompt.pinned ? '取消置顶' : '置顶'}
+                className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                  activePrompt.pinned
+                    ? 'text-amber-400 hover:bg-amber-50'
+                    : 'text-zinc-300 hover:bg-amber-50 hover:text-amber-500'
+                }`}
+              >
+                <Star className={`h-4 w-4 ${activePrompt.pinned ? 'fill-amber-400' : ''}`} />
+              </button>
               <SaveStatusBadge status={status} />
             </div>
 
             <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
-              <span className="font-mono">{formatCount(activePrompt.content)}</span>
+              <span className="font-mono">
+                {formatCount(activePrompt.content)}
+                {activePrompt.copyCount ? ` · 复制 ${activePrompt.copyCount} 次` : ''}
+              </span>
               <span className="flex items-center gap-1">
                 <PenLine className="h-3 w-3" />
                 Tab 缩进 · 修改后自动保存
@@ -419,6 +486,17 @@ export default function PromptManager() {
           <EmptyEditor onAdd={addPrompt} />
         )}
       </section>
+
+      {/* 复制填空面板 */}
+      {pendingCopy && (
+        <CopyDialog
+          content={pendingCopy.content}
+          values={varValues}
+          onValuesChange={setVarValues}
+          onCopy={(filled) => void doCopy(pendingCopy.id, filled)}
+          onClose={() => setPendingCopy(null)}
+        />
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import {
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
-  sortByUpdatedAtDesc,
+  sortPrompts,
 } from '../utils';
 
 const AUTOSAVE_DELAY_MS = 600;
@@ -34,7 +34,7 @@ export function usePromptManager() {
       if (cancelled) return;
       setPrompts(items);
       // 默认选中最近编辑的一条，方便回来继续修改
-      const first = sortByUpdatedAtDesc(items)[0];
+      const first = sortPrompts(items)[0];
       if (first) setActiveId(first.id);
       setLoading(false);
     });
@@ -70,7 +70,7 @@ export function usePromptManager() {
           : item,
       );
       await savePrompts(next);
-      setPrompts(sortByUpdatedAtDesc(next));
+      setPrompts(sortPrompts(next));
       setStatus('saved');
     } catch (error) {
       console.error('[prompt-manager] 自动保存失败', error);
@@ -84,7 +84,7 @@ export function usePromptManager() {
       if (!activeId) return;
       const updatedAt = Date.now();
       setPrompts((prev) =>
-        sortByUpdatedAtDesc(
+        sortPrompts(
           prev.map((item) => (item.id === activeId ? { ...item, ...patch, updatedAt } : item)),
         ),
       );
@@ -105,7 +105,7 @@ export function usePromptManager() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (latestDraft.current) await persist();
     const item = createPromptItem();
-    const next = sortByUpdatedAtDesc([item, ...prompts]);
+    const next = sortPrompts([item, ...prompts]);
     setPrompts(next);
     setActiveId(item.id);
     await savePrompts(next);
@@ -118,7 +118,7 @@ export function usePromptManager() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (latestDraft.current) await persist();
       const item = createPromptFromTemplate(template);
-      const next = sortByUpdatedAtDesc([item, ...prompts]);
+      const next = sortPrompts([item, ...prompts]);
       setPrompts(next);
       setActiveId(item.id);
       await savePrompts(next);
@@ -163,8 +163,10 @@ export function usePromptManager() {
 
   /** 编辑模板（名称/内容）：本地即时更新，防抖落盘 */
   const updateTemplate = useCallback(
-    (id: string, patch: Partial<Omit<TemplateItem, 'id' | 'createdAt'>>) => {
-      const next = templatesRef.current.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    (id: string, patch: Partial<Omit<TemplateItem, 'id' | 'createdAt' | 'updatedAt'>>) => {
+      const next = templatesRef.current.map((t) =>
+        t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t,
+      );
       templatesRef.current = next;
       setTemplates(next);
       if (templateTimer.current) clearTimeout(templateTimer.current);
@@ -182,6 +184,39 @@ export function usePromptManager() {
     await saveTemplates(next);
   }, []);
 
+  /** 按 id 直接修改 prompt 元数据（置顶/使用统计）：先冲刷未保存草稿，再立即落盘 */
+  const patchPrompt = useCallback(
+    async (id: string, patch: Partial<PromptItem>) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestDraft.current) await persist();
+      const current = await loadPrompts();
+      const next = current.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      setPrompts(sortPrompts(next));
+      await savePrompts(next);
+    },
+    [persist],
+  );
+
+  /** 置顶/取消置顶 */
+  const togglePin = useCallback(
+    (id: string) => {
+      const item = prompts.find((p) => p.id === id);
+      if (!item) return;
+      void patchPrompt(id, { pinned: !item.pinned });
+    },
+    [patchPrompt, prompts],
+  );
+
+  /** 记录一次复制使用 */
+  const recordCopy = useCallback(
+    (id: string) => {
+      const item = prompts.find((p) => p.id === id);
+      if (!item) return;
+      void patchPrompt(id, { copyCount: (item.copyCount ?? 0) + 1, lastUsedAt: Date.now() });
+    },
+    [patchPrompt, prompts],
+  );
+
   return {
     prompts,
     templates,
@@ -196,5 +231,7 @@ export function usePromptManager() {
     createFromTemplate,
     removeTemplate,
     updateTemplate,
+    togglePin,
+    recordCopy,
   };
 }

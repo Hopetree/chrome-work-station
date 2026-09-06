@@ -3,16 +3,18 @@ import {
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
+  extractVariables,
   filterPrompts,
+  fillVariables,
   formatUpdatedAt,
-  sortByUpdatedAtDesc,
+  sortPrompts,
 } from './utils';
 
 describe('createTemplateFromPrompt', () => {
   it('copies title as name and content', () => {
     const prompt = { id: 'p1', title: '审查', content: '正文', createdAt: 1, updatedAt: 2 };
     const t = createTemplateFromPrompt(prompt, 100);
-    expect(t).toEqual({ id: t.id, name: '审查', content: '正文', createdAt: 100 });
+    expect(t).toEqual({ id: t.id, name: '审查', content: '正文', createdAt: 100, updatedAt: 100 });
     expect(t.id).not.toBe(prompt.id);
   });
 });
@@ -68,16 +70,45 @@ describe('filterPrompts', () => {
   });
 });
 
-describe('sortByUpdatedAtDesc', () => {
-  it('sorts newest first without mutating input', () => {
+describe('sortPrompts', () => {
+  it('puts pinned first, then newest, without mutating input', () => {
     const input = [
       { id: 'a', title: '', content: '', createdAt: 1, updatedAt: 10 },
       { id: 'b', title: '', content: '', createdAt: 1, updatedAt: 30 },
-      { id: 'c', title: '', content: '', createdAt: 1, updatedAt: 20 },
+      { id: 'c', title: '', content: '', createdAt: 1, updatedAt: 20, pinned: true },
+      { id: 'd', title: '', content: '', createdAt: 1, updatedAt: 5, pinned: true },
     ];
-    const sorted = sortByUpdatedAtDesc(input);
-    expect(sorted.map((p) => p.id)).toEqual(['b', 'c', 'a']);
+    const sorted = sortPrompts(input);
+    expect(sorted.map((p) => p.id)).toEqual(['c', 'd', 'b', 'a']);
     expect(input[0].id).toBe('a');
+  });
+});
+
+describe('extractVariables', () => {
+  it('extracts unique variables in order of appearance', () => {
+    expect(extractVariables('把 {{语言}} 翻译成 {{语言}}，语气 {{语气}}')).toEqual([
+      '语言',
+      '语气',
+    ]);
+  });
+
+  it('returns empty when no variables', () => {
+    expect(extractVariables('普通文本 { 不是变量 }')).toEqual([]);
+  });
+
+  it('trims whitespace inside braces', () => {
+    expect(extractVariables('{{  语言  }}')).toEqual(['语言']);
+  });
+});
+
+describe('fillVariables', () => {
+  it('fills provided values and keeps missing ones as-is', () => {
+    const filled = fillVariables('把 {{语言}} 翻译成 {{语言}}，{{ 语气 }}', { 语言: '英语' });
+    expect(filled).toBe('把 英语 翻译成 英语，{{ 语气 }}');
+  });
+
+  it('treats empty string as not provided', () => {
+    expect(fillVariables('{{a}}', { a: '  ' })).toBe('{{a}}');
   });
 });
 
