@@ -33,7 +33,8 @@ registry.ts <──注册─────────────┘
 
 | 键（去掉前缀） | Schema |
 |----------------|--------|
-| `prompt-manager:prompts` | `PromptItem[]`：`{ id, title, content, createdAt, updatedAt, pinned?, copyCount?, lastUsedAt? }` |
+| `prompt-manager:prompts` | `PromptItem[]`：`{ id, title, content, createdAt, updatedAt, folderId?, pinned?, copyCount?, lastUsedAt? }`（folderId 为空/指向已删目录 = 未分组） |
+| `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt? }`，仅一层 |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 
@@ -45,8 +46,8 @@ registry.ts <──注册─────────────┘
 
 ### 4.1 编辑自动保存（usePromptManager）
 
-1. `updateActive(patch)`：本地立即更新（置顶优先排序）→ 防抖草稿 `latestDraft`（同 id 合并 patch，切 id 重置）→ 600ms 后 `persist()`
-2. `persist()`：从 storage 读最新 → 合并草稿 → 写回 → `setPrompts` → 状态机 `dirty → saving → saved`（失败回 dirty 并 console.error）
+1. `updateActive(patch)`：本地立即更新（置顶优先排序）→ 防抖草稿 `latestDraft`（同 id 合并 patch，切 id 重置）→ 停止输入 1500ms 后 `persist()`
+2. `persist()`：从 storage 读最新 → 合并草稿 → 写回 → **仅重排本地状态**（不整体替换，避免覆盖输入中的内容导致光标跳尾）→ 状态机 `dirty → saving → saved`（失败回 dirty、5 秒后自动重试一次）
 3. 元数据操作（`patchPrompt`：置顶/复制计数）：先 `clearTimeout` + 冲刷草稿，再读-改-写，避免相互覆盖
 4. 卸载时取消定时器；模板卸载时立即冲刷未落盘修改
 

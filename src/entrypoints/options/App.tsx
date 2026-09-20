@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Download, Loader2, Upload } from 'lucide-react';
 import {
+  loadFolders,
   loadPrompts,
   loadTemplates,
+  saveFolders,
   savePrompts,
   saveTemplates,
 } from '@/features/prompt-manager/storage';
@@ -32,8 +34,12 @@ export default function OptionsApp() {
   };
 
   const handleExport = async () => {
-    const [prompts, templates] = await Promise.all([loadPrompts(), loadTemplates()]);
-    const backup = buildBackup(prompts, templates);
+    const [prompts, templates, folders] = await Promise.all([
+      loadPrompts(),
+      loadTemplates(),
+      loadFolders(),
+    ]);
+    const backup = buildBackup(prompts, templates, folders);
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -53,9 +59,17 @@ export default function OptionsApp() {
     setFeedback(null);
     try {
       const parsed: unknown = JSON.parse(await file.text());
-      const [prompts, templates] = await Promise.all([loadPrompts(), loadTemplates()]);
-      const result = mergeBackup(prompts, templates, parsed);
-      await Promise.all([savePrompts(result.prompts), saveTemplates(result.templates)]);
+      const [prompts, templates, folders] = await Promise.all([
+        loadPrompts(),
+        loadTemplates(),
+        loadFolders(),
+      ]);
+      const result = mergeBackup(prompts, templates, folders, parsed);
+      await Promise.all([
+        savePrompts(result.prompts),
+        saveTemplates(result.templates),
+        saveFolders(result.folders),
+      ]);
       setFeedback({
         kind: 'ok',
         text: `导入完成：新增 ${result.added} 条，更新 ${result.updated} 条`,

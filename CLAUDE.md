@@ -50,7 +50,8 @@ src/
 
 | 键 | 内容 |
 |----|------|
-| `prompt-manager:prompts` | `PromptItem[]`：id/title/content/createdAt/updatedAt + pinned/copyCount/lastUsedAt |
+| `prompt-manager:prompts` | `PromptItem[]`：id/title/content/createdAt/updatedAt + folderId?/pinned/copyCount/lastUsedAt |
+| `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?（仅一层，不支持子目录） |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? |
 | `settings:defaultFeature` | 工作台默认功能 id |
 
@@ -59,7 +60,8 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 ## 关键机制速查
 
 - **功能深链**：`workbench.html?feature=<id>`，workbench/App.tsx 解析并 `history.replaceState` 同步
-- **自动保存**：编辑防抖 600ms 合并落盘（`usePromptManager` 的 latestDraft）；置顶/计数等元数据走 `patchPrompt`（先冲刷草稿再写，防覆盖）
+- **自动保存**：编辑停止后 1500ms 防抖合并落盘（`usePromptManager` 的 latestDraft）；**persist/patchPrompt 只重排本地状态、绝不用存储值整体替换**（否则会覆盖输入中的内容并把光标顶到末尾）；置顶/计数/移动目录等元数据走 `patchPrompt`（先冲刷草稿再写，防覆盖）
+- **目录**：`groupPromptsByFolder` 按目录分组渲染，未分组殿后；删除目录只把 Prompt 置回未分组
 - **变量复制**：内容含 `{{变量}}` 时 CopyDialog 填空（`extractVariables`/`fillVariables`），空白值视为未填写保留原文
 - **数据备份**：`lib/backup.ts` 的 `mergeBackup` 按 id 合并、新 updatedAt 者胜
 - **预览服务器**：`scripts/preview-server.mjs` 注入 chrome.* shim（runtime.id 必须存在，否则 WXT polyfill 抛错），storage 用 sessionStorage 兜底持久化

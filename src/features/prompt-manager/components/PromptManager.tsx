@@ -1,12 +1,17 @@
-import { useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, UIEvent } from 'react';
 import {
   BookmarkPlus,
   Check,
+  ChevronDown,
   Copy,
   FileText,
+  Folder,
+  FolderInput,
+  FolderPlus,
   LayoutTemplate,
   Loader2,
+  Pencil,
   PenLine,
   Plus,
   Search,
@@ -16,8 +21,14 @@ import {
 import CopyDialog from './CopyDialog';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { usePromptManager } from '../hooks/usePromptManager';
-import { extractVariables, filterPrompts, formatCount, formatUpdatedAt } from '../utils';
-import type { PromptItem, SaveStatus, TemplateItem } from '../types';
+import {
+  extractVariables,
+  filterPrompts,
+  formatCount,
+  formatUpdatedAt,
+  groupPromptsByFolder,
+} from '../utils';
+import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
   idle: '',
@@ -50,6 +61,11 @@ export default function PromptManager() {
     updateTemplate,
     togglePin,
     recordCopy,
+    folders,
+    addFolder,
+    renameFolder,
+    removeFolder,
+    movePrompt,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
@@ -60,12 +76,20 @@ export default function PromptManager() {
   const [varValues, setVarValues] = useState<Record<string, string>>({});
   const [deletingPrompt, setDeletingPrompt] = useState<PromptItem | null>(null);
   const [deletingTemplate, setDeletingTemplate] = useState<TemplateItem | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<FolderItem | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [addingFolder, setAddingFolder] = useState(false);
+  const [folderNameDraft, setFolderNameDraft] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
   const lineCount = (activePrompt?.content ?? '').split('\n').length;
   const previewTemplate =
     view === 'templates' ? (templates.find((t) => t.id === previewTemplateId) ?? null) : null;
+  const sections = useMemo(() => groupPromptsByFolder(prompts, folders), [prompts, folders]);
+  const folderNameById = useMemo(() => new Map(folders.map((f) => [f.id, f.name])), [folders]);
   const sortedTemplates = useMemo(
     () =>
       [...templates].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)),
@@ -98,6 +122,50 @@ export default function PromptManager() {
   const copyActive = () => {
     if (!activePrompt?.content) return;
     requestCopy(activePrompt.id, activePrompt.content);
+  };
+
+  const toggleFolderCollapsed = (id: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const startAddFolder = () => {
+    setFolderNameDraft('');
+    setAddingFolder(true);
+  };
+
+  const submitNewFolder = async () => {
+    const name = folderNameDraft.trim();
+    setAddingFolder(false);
+    setFolderNameDraft('');
+    if (name) await addFolder(name);
+  };
+
+  const startRenameFolder = (folder: FolderItem) => {
+    setEditingFolderId(folder.id);
+    setFolderNameDraft(folder.name);
+  };
+
+  const submitRenameFolder = async () => {
+    if (editingFolderId) await renameFolder(editingFolderId, folderNameDraft);
+    setEditingFolderId(null);
+    setFolderNameDraft('');
+  };
+
+  /** 在指定目录中新建 Prompt，并展开该目录 */
+  const createPromptIn = async (folderId: string | null) => {
+    if (folderId) {
+      setCollapsedFolders((prev) => {
+        const next = new Set(prev);
+        next.delete(folderId);
+        return next;
+      });
+    }
+    await addPrompt(folderId);
   };
 
   const handleSaveAsTemplate = async () => {
@@ -220,8 +288,15 @@ export default function PromptManager() {
                 />
               </div>
               <button
-                onClick={addPrompt}
-                title="新建 Prompt"
+                onClick={startAddFolder}
+                title="新建目录"
+                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 shadow-sm transition hover:border-teal-600 hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => void createPromptIn(null)}
+                title="新建 Prompt（未分组）"
                 className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
               >
                 <Plus className="h-4 w-4" />
@@ -229,75 +304,124 @@ export default function PromptManager() {
             </div>
 
             <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
+              {addingFolder && (
+                <div className="mb-1.5 flex items-center gap-1.5 rounded-md border border-teal-500 bg-white px-2 py-1">
+                  <FolderPlus className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                  <input
+                    autoFocus
+                    value={folderNameDraft}
+                    onChange={(e) => setFolderNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void submitNewFolder();
+                      if (e.key === 'Escape') {
+                        setAddingFolder(false);
+                        setFolderNameDraft('');
+                      }
+                    }}
+                    onBlur={() => void submitNewFolder()}
+                    placeholder="目录名称，回车创建"
+                    className="min-w-0 flex-1 bg-transparent text-[12px] text-zinc-800 outline-none placeholder:text-zinc-300"
+                  />
+                </div>
+              )}
+
               {loading ? (
                 <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
-              ) : visible.length === 0 ? (
-                <EmptyList hasPrompts={prompts.length > 0} />
+              ) : query ? (
+                visible.length === 0 ? (
+                  <p className="px-2 py-4 text-xs text-zinc-400">没有匹配的 Prompt</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {visible.map((item) => (
+                      <PromptCardRow
+                        key={item.id}
+                        item={item}
+                        active={item.id === activePrompt?.id}
+                        folders={folders}
+                        folderLabel={
+                          item.folderId ? (folderNameById.get(item.folderId) ?? null) : null
+                        }
+                        moveMenuOpen={moveMenuFor === item.id}
+                        onToggleMoveMenu={setMoveMenuFor}
+                        onSelect={selectPrompt}
+                        onTogglePin={togglePin}
+                        onRequestCopy={requestCopy}
+                        onRequestDelete={setDeletingPrompt}
+                        onMove={movePrompt}
+                      />
+                    ))}
+                  </ul>
+                )
+              ) : prompts.length === 0 && folders.length === 0 ? (
+                <EmptyList hasPrompts={false} />
               ) : (
-                <ul className="space-y-1">
-                  {visible.map((item) => {
-                    const active = item.id === activePrompt?.id;
+                <div className="space-y-2">
+                  {sections.map((section) => {
+                    const key = section.folder?.id ?? '__ungrouped';
+                    const collapsed = section.folder
+                      ? collapsedFolders.has(section.folder.id)
+                      : false;
                     return (
-                      <li key={item.id} className="group relative">
-                        <button
-                          onClick={() => selectPrompt(item.id)}
-                          className={`w-full rounded-md px-2.5 py-2 pr-20 text-left transition ${
-                            active
-                              ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
-                              : 'hover:bg-white hover:shadow-sm'
-                          }`}
-                        >
-                          <span
-                            className={`flex items-center gap-1 text-[13px] font-medium ${
-                              active ? 'text-teal-900' : 'text-zinc-800'
-                            }`}
-                          >
-                            {item.pinned && (
-                              <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
-                            )}
-                            <span className="truncate">{item.title || '未命名 Prompt'}</span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                            {item.content ? item.content.split('\n')[0] : '（空）'}
-                          </span>
-                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                            {item.copyCount ? `${item.copyCount} 次使用 · ` : ''}
-                            {formatUpdatedAt(item.updatedAt)}
-                          </span>
-                        </button>
-                        <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
-                          <button
-                            onClick={() => togglePin(item.id)}
-                            title={item.pinned ? '取消置顶' : '置顶'}
-                            className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                              item.pinned
-                                ? 'text-amber-400 hover:bg-amber-50'
-                                : 'text-zinc-400 hover:bg-amber-50 hover:text-amber-500'
-                            }`}
-                          >
-                            <Star
-                              className={`h-3.5 w-3.5 ${item.pinned ? 'fill-amber-400' : ''}`}
-                            />
-                          </button>
-                          <button
-                            onClick={() => requestCopy(item.id, item.content)}
-                            title="复制全文"
-                            className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingPrompt(item)}
-                            title="删除 Prompt"
-                            className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      </li>
+                      <div key={key}>
+                        {folders.length > 0 && (
+                          <FolderHeader
+                            folder={section.folder}
+                            count={section.prompts.length}
+                            collapsed={collapsed}
+                            editing={!!section.folder && editingFolderId === section.folder.id}
+                            draftName={folderNameDraft}
+                            onDraftName={setFolderNameDraft}
+                            onToggle={() =>
+                              section.folder ? toggleFolderCollapsed(section.folder.id) : undefined
+                            }
+                            onAddPrompt={() => void createPromptIn(section.folder?.id ?? null)}
+                            onStartRename={
+                              section.folder ? () => startRenameFolder(section.folder!) : undefined
+                            }
+                            onDelete={
+                              section.folder ? () => setDeletingFolder(section.folder) : undefined
+                            }
+                            onSubmitName={() => void submitRenameFolder()}
+                            onCancelEdit={() => {
+                              setEditingFolderId(null);
+                              setFolderNameDraft('');
+                            }}
+                          />
+                        )}
+                        {!collapsed &&
+                          (section.prompts.length === 0 ? (
+                            section.folder ? (
+                              <p className="px-2 py-1 text-[11px] text-zinc-400">
+                                这个目录还是空的，点右上角 + 创建
+                              </p>
+                            ) : folders.length > 0 ? (
+                              <p className="px-2 py-1 text-[11px] text-zinc-400">
+                                没有未分组的 Prompt
+                              </p>
+                            ) : null
+                          ) : (
+                            <ul className="space-y-1">
+                              {section.prompts.map((item) => (
+                                <PromptCardRow
+                                  key={item.id}
+                                  item={item}
+                                  active={item.id === activePrompt?.id}
+                                  folders={folders}
+                                  moveMenuOpen={moveMenuFor === item.id}
+                                  onToggleMoveMenu={setMoveMenuFor}
+                                  onSelect={selectPrompt}
+                                  onTogglePin={togglePin}
+                                  onRequestCopy={requestCopy}
+                                  onRequestDelete={setDeletingPrompt}
+                                  onMove={movePrompt}
+                                />
+                              ))}
+                            </ul>
+                          ))}
+                      </div>
                     );
                   })}
-                </ul>
+                </div>
               )}
             </div>
           </>
@@ -425,11 +549,7 @@ export default function PromptManager() {
                 aria-hidden
                 className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 bg-zinc-50 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
               >
-                {Array.from({ length: lineCount }, (_, i) => (
-                  <div key={i} className="pr-2">
-                    {i + 1}
-                  </div>
-                ))}
+                <LineNumbers count={lineCount} />
               </div>
               <textarea
                 value={activePrompt.content}
@@ -478,7 +598,7 @@ export default function PromptManager() {
             </div>
           </>
         ) : (
-          <EmptyEditor onAdd={addPrompt} />
+          <EmptyEditor onAdd={() => void createPromptIn(null)} />
         )}
       </section>
 
@@ -506,6 +626,17 @@ export default function PromptManager() {
         }}
       />
       <ConfirmDialog
+        open={!!deletingFolder}
+        onOpenChange={(o) => !o && setDeletingFolder(null)}
+        title="删除目录"
+        description={`「${deletingFolder?.name ?? ''}」将被删除，目录里的 Prompt 会回到未分组，不会被删除。`}
+        confirmText="删除目录"
+        onConfirm={() => {
+          if (deletingFolder) void removeFolder(deletingFolder.id);
+          setDeletingFolder(null);
+        }}
+      />
+      <ConfirmDialog
         open={!!deletingTemplate}
         onOpenChange={(o) => !o && setDeletingTemplate(null)}
         title="删除模板"
@@ -519,6 +650,245 @@ export default function PromptManager() {
     </div>
   );
 }
+
+/** 目录行：折叠开关、名称（可重命名）、数量、悬停操作（新建/重命名/删除） */
+function FolderHeader({
+  folder,
+  count,
+  collapsed,
+  editing,
+  draftName,
+  onDraftName,
+  onToggle,
+  onAddPrompt,
+  onStartRename,
+  onDelete,
+  onSubmitName,
+  onCancelEdit,
+}: {
+  folder: FolderItem | null;
+  count: number;
+  collapsed: boolean;
+  editing: boolean;
+  draftName: string;
+  onDraftName: (name: string) => void;
+  onToggle: () => void;
+  onAddPrompt: () => void;
+  onStartRename?: () => void;
+  onDelete?: () => void;
+  onSubmitName: () => void;
+  onCancelEdit: () => void;
+}) {
+  return (
+    <div className="group/folder flex items-center gap-1 rounded-md px-1 py-1 transition hover:bg-zinc-200/50">
+      <button
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        title={collapsed ? '展开' : '折叠'}
+        className="grid h-5 w-5 shrink-0 place-items-center rounded text-zinc-400 transition hover:text-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+      >
+        <ChevronDown
+          className={`h-3.5 w-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+        />
+      </button>
+      <Folder className="h-3.5 w-3.5 shrink-0 text-teal-700/70" />
+      {editing ? (
+        <input
+          autoFocus
+          value={draftName}
+          onChange={(e) => onDraftName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSubmitName();
+            if (e.key === 'Escape') onCancelEdit();
+          }}
+          onBlur={onSubmitName}
+          className="h-5 min-w-0 flex-1 rounded border border-teal-500 bg-white px-1 text-[12px] text-zinc-800 outline-none"
+        />
+      ) : (
+        <button
+          onClick={onToggle}
+          className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-zinc-600"
+        >
+          {folder?.name ?? '未分组'}
+        </button>
+      )}
+      <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">{count}</span>
+      <span className="flex shrink-0 gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover/folder:opacity-100">
+        <button
+          onClick={onAddPrompt}
+          title={folder ? `在「${folder.name}」中新建 Prompt` : '新建 Prompt（未分组）'}
+          className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+        {folder && onStartRename && (
+          <button
+            onClick={onStartRename}
+            title="重命名目录"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+        {folder && onDelete && (
+          <button
+            onClick={onDelete}
+            title="删除目录"
+            className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Prompt 卡片：悬停操作（置顶/复制/移动到目录/删除），可显示所在目录名 */
+function PromptCardRow({
+  item,
+  active,
+  folders,
+  folderLabel,
+  moveMenuOpen,
+  onToggleMoveMenu,
+  onSelect,
+  onTogglePin,
+  onRequestCopy,
+  onRequestDelete,
+  onMove,
+}: {
+  item: PromptItem;
+  active: boolean;
+  folders: FolderItem[];
+  folderLabel?: string | null;
+  moveMenuOpen: boolean;
+  onToggleMoveMenu: (id: string | null) => void;
+  onSelect: (id: string) => void;
+  onTogglePin: (id: string) => void;
+  onRequestCopy: (id: string, content: string) => void;
+  onRequestDelete: (item: PromptItem) => void;
+  onMove: (id: string, folderId: string | null) => void;
+}) {
+  const currentFolderId = item.folderId ?? null;
+  return (
+    <li className="group relative">
+      <button
+        onClick={() => onSelect(item.id)}
+        className={`w-full rounded-md px-2.5 py-2 pr-24 text-left transition ${
+          active
+            ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
+            : 'hover:bg-white hover:shadow-sm'
+        }`}
+      >
+        <span
+          className={`flex items-center gap-1 text-[13px] font-medium ${
+            active ? 'text-teal-900' : 'text-zinc-800'
+          }`}
+        >
+          {item.pinned && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />}
+          <span className="truncate">{item.title || '未命名 Prompt'}</span>
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+          {item.content ? item.content.split('\n')[0] : '（空）'}
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+          {folderLabel ? `${folderLabel} · ` : ''}
+          {item.copyCount ? `${item.copyCount} 次使用 · ` : ''}
+          {formatUpdatedAt(item.updatedAt)}
+        </span>
+      </button>
+      <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          onClick={() => onTogglePin(item.id)}
+          title={item.pinned ? '取消置顶' : '置顶'}
+          className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+            item.pinned
+              ? 'text-amber-400 hover:bg-amber-50'
+              : 'text-zinc-400 hover:bg-amber-50 hover:text-amber-500'
+          }`}
+        >
+          <Star className={`h-3.5 w-3.5 ${item.pinned ? 'fill-amber-400' : ''}`} />
+        </button>
+        <button
+          onClick={() => onRequestCopy(item.id, item.content)}
+          title="复制全文"
+          className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onToggleMoveMenu(moveMenuOpen ? null : item.id)}
+          title="移动到目录"
+          className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+            moveMenuOpen
+              ? 'bg-teal-50 text-teal-600'
+              : 'text-zinc-400 hover:bg-teal-50 hover:text-teal-600'
+          }`}
+        >
+          <FolderInput className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onRequestDelete(item)}
+          title="删除 Prompt"
+          className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </span>
+
+      {moveMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => onToggleMoveMenu(null)} />
+          <div className="absolute right-2 top-9 z-20 w-44 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg">
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium text-zinc-400">移动到目录</p>
+            <button
+              onClick={() => onMove(item.id, null)}
+              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition hover:bg-teal-50 ${
+                currentFolderId === null ? 'text-teal-800' : 'text-zinc-700'
+              }`}
+            >
+              <span className="truncate">未分组</span>
+              {currentFolderId === null && <Check className="h-3.5 w-3.5 shrink-0 text-teal-600" />}
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => onMove(item.id, f.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition hover:bg-teal-50 ${
+                  currentFolderId === f.id ? 'text-teal-800' : 'text-zinc-700'
+                }`}
+              >
+                <span className="truncate">{f.name}</span>
+                {currentFolderId === f.id && (
+                  <Check className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                )}
+              </button>
+            ))}
+            {folders.length === 0 && (
+              <p className="px-2.5 pb-2 pt-1 text-[11px] leading-4 text-zinc-400">
+                还没有目录，先在上方创建
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </li>
+  );
+}
+
+/** 行号栏内容：只在行数变化时重渲染，避免每次按键都重建整列 DOM */
+const LineNumbers = memo(function LineNumbers({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="pr-2">
+          {i + 1}
+        </div>
+      ))}
+    </>
+  );
+});
 
 function SaveStatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'idle') return null;
@@ -611,11 +981,7 @@ function TemplateEditor({
           aria-hidden
           className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
         >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i} className="pr-2">
-              {i + 1}
-            </div>
-          ))}
+          <LineNumbers count={lineCount} />
         </div>
         <textarea
           value={template.content}

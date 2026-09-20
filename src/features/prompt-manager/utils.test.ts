@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
@@ -7,6 +8,8 @@ import {
   filterPrompts,
   fillVariables,
   formatUpdatedAt,
+  groupPromptsByFolder,
+  sortFolders,
   sortPrompts,
 } from './utils';
 
@@ -48,6 +51,57 @@ describe('createPromptItem', () => {
     const a = createPromptItem();
     const b = createPromptItem();
     expect(a.id).not.toBe(b.id);
+  });
+});
+
+describe('createFolderItem', () => {
+  it('trims name and falls back when blank', () => {
+    expect(createFolderItem('  工作  ', 10)).toMatchObject({ name: '工作', createdAt: 10 });
+    expect(createFolderItem('   ').name).toBe('未命名目录');
+  });
+});
+
+describe('sortFolders', () => {
+  it('orders by creation time without mutating input', () => {
+    const input = [
+      { id: 'b', name: 'B', createdAt: 20 },
+      { id: 'a', name: 'A', createdAt: 10 },
+    ];
+    expect(sortFolders(input).map((f) => f.id)).toEqual(['a', 'b']);
+    expect(input[0].id).toBe('b');
+  });
+});
+
+describe('groupPromptsByFolder', () => {
+  const folders = [
+    { id: 'f1', name: '工作', createdAt: 1 },
+    { id: 'f2', name: '生活', createdAt: 2 },
+  ];
+
+  it('groups prompts by folder with ungrouped last', () => {
+    const prompts = [
+      { id: 'p1', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'f1' },
+      { id: 'p2', title: '', content: '', createdAt: 1, updatedAt: 1 },
+      { id: 'p3', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'f2' },
+    ];
+    const sections = groupPromptsByFolder(prompts, folders);
+    expect(sections.map((s) => s.folder?.id ?? null)).toEqual(['f1', 'f2', null]);
+    expect(sections[0].prompts.map((p) => p.id)).toEqual(['p1']);
+    expect(sections[2].prompts.map((p) => p.id)).toEqual(['p2']);
+  });
+
+  it('treats prompts of deleted folders as ungrouped', () => {
+    const prompts = [
+      { id: 'p1', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'gone' },
+    ];
+    const sections = groupPromptsByFolder(prompts, folders);
+    expect(sections[2].prompts.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('keeps empty folders visible', () => {
+    const sections = groupPromptsByFolder([], folders);
+    expect(sections).toHaveLength(3);
+    expect(sections[1].prompts).toEqual([]);
   });
 });
 

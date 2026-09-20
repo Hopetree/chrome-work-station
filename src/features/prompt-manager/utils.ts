@@ -1,4 +1,4 @@
-import type { PromptItem, TemplateItem } from './types';
+import type { FolderItem, PromptItem, TemplateItem } from './types';
 
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -7,13 +7,14 @@ export function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createPromptItem(now = Date.now()): PromptItem {
+export function createPromptItem(now = Date.now(), folderId: string | null = null): PromptItem {
   return {
     id: generateId(),
     title: '未命名 Prompt',
     content: '',
     createdAt: now,
     updatedAt: now,
+    folderId,
   };
 }
 
@@ -61,6 +62,42 @@ export function sortPrompts(prompts: PromptItem[]): PromptItem[] {
   return [...prompts].sort(
     (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt,
   );
+}
+
+export function createFolderItem(name: string, now = Date.now()): FolderItem {
+  return { id: generateId(), name: name.trim() || '未命名目录', createdAt: now, updatedAt: now };
+}
+
+/** 目录按创建时间排序（固定顺序，重命名不改变位置） */
+export function sortFolders(folders: FolderItem[]): FolderItem[] {
+  return [...folders].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export interface PromptSection {
+  /** null 表示未分组（默认目录） */
+  folder: FolderItem | null;
+  prompts: PromptItem[];
+}
+
+/**
+ * 按目录分组：先目录（创建顺序），最后是未分组。
+ * folderId 指向已删除目录的 Prompt 自动归入未分组。
+ */
+export function groupPromptsByFolder(
+  prompts: PromptItem[],
+  folders: FolderItem[],
+): PromptSection[] {
+  const sorted = sortFolders(folders);
+  const known = new Set(sorted.map((f) => f.id));
+  const sections: PromptSection[] = sorted.map((folder) => ({
+    folder,
+    prompts: prompts.filter((p) => p.folderId === folder.id),
+  }));
+  sections.push({
+    folder: null,
+    prompts: prompts.filter((p) => !p.folderId || !known.has(p.folderId)),
+  });
+  return sections;
 }
 
 /** 按关键词过滤：标题或正文包含即命中，空关键词返回全部 */

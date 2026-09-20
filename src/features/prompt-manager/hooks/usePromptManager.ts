@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PromptItem, SaveStatus, TemplateItem } from '../types';
-import { loadPrompts, loadTemplates, savePrompts, saveTemplates } from '../storage';
+import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
 import {
+  loadFolders,
+  loadPrompts,
+  loadTemplates,
+  saveFolders,
+  savePrompts,
+  saveTemplates,
+} from '../storage';
+import {
+  createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
   sortPrompts,
 } from '../utils';
 
-const AUTOSAVE_DELAY_MS = 600;
+// 停止输入后延迟落盘；输入过程中不保存，避免打断输入和造成卡顿
+const AUTOSAVE_DELAY_MS = 1500;
 
 /**
  * Prompt 管理器的状态中枢：列表加载、选中、防抖自动保存。
@@ -17,6 +26,7 @@ const AUTOSAVE_DELAY_MS = 600;
 export function usePromptManager() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [folders, setFolders] = useState<FolderItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -40,6 +50,9 @@ export function usePromptManager() {
     });
     loadTemplates().then((items) => {
       if (!cancelled) setTemplates(items);
+    });
+    loadFolders().then((items) => {
+      if (!cancelled) setFolders(items);
     });
     return () => {
       cancelled = true;
@@ -71,7 +84,8 @@ export function usePromptManager() {
       );
       await savePrompts(next);
       if (latestDraft.current === draft) latestDraft.current = null;
-      setPrompts(sortPrompts(next));
+      // 只重排本地状态；不能用存储值整体替换，否则会覆盖用户正在输入的新内容并导致光标跳到末尾
+      setPrompts((prev) => sortPrompts(prev));
       setStatus('saved');
     } catch (error) {
       console.error('[prompt-manager] 自动保存失败', error);
@@ -105,16 +119,19 @@ export function usePromptManager() {
     [activeId, persist],
   );
 
-  const addPrompt = useCallback(async () => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (latestDraft.current) await persist();
-    const item = createPromptItem();
-    const next = sortPrompts([item, ...prompts]);
-    setPrompts(next);
-    setActiveId(item.id);
-    await savePrompts(next);
-    setStatus('saved');
-  }, [persist, prompts]);
+  const addPrompt = useCallback(
+    async (folderId: string | null = null) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestDraft.current) await persist();
+      const item = createPromptItem(Date.now(), folderId);
+      const next = sortPrompts([item, ...prompts]);
+      setPrompts(next);
+      setActiveId(item.id);
+      await savePrompts(next);
+      setStatus('saved');
+    },
+    [persist, prompts],
+  );
 
   /** 基于模板创建新 Prompt */
   const createFromTemplate = useCallback(
@@ -195,10 +212,62 @@ export function usePromptManager() {
       if (latestDraft.current) await persist();
       const current = await loadPrompts();
       const next = current.map((item) => (item.id === id ? { ...item, ...patch } : item));
-      setPrompts(sortPrompts(next));
       await savePrompts(next);
+      // 本地按函数式更新，避免覆盖输入中的内容
+      setPrompts((prev) =>
+        sortPrompts(prev.map((item) => (item.id === id ? { ...item, ...patch } : item))),
+      );
     },
     [persist],
+  );
+
+  /** 新建目录，返回新目录 id */
+  const addFolder = useCallback(
+    async (name: string): Promise<string> => {
+      const folder = createFolderItem(name);
+      const next = [...folders, folder];
+      setFolders(next);
+      await saveFolders(next);
+      return folder.id;
+    },
+    [folders],
+  );
+
+  /** 重命名目录 */
+  const renameFolder = useCallback(
+    async (id: string, name: string) => {
+      const next = folders.map((f) =>
+        f.id === id ? { ...f, name: name.trim() || f.name, updatedAt: Date.now() } : f,
+      );
+      setFolders(next);
+      await saveFolders(next);
+    },
+    [folders],
+  );
+
+  /** 删除目录：其中的 Prompt 回到未分组，不随目录一起删除 */
+  const removeFolder = useCallback(
+    async (id: string) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestDraft.current) await persist();
+      const nextFolders = folders.filter((f) => f.id !== id);
+      setFolders(nextFolders);
+      const current = await loadPrompts();
+      const nextPrompts = current.map((p) => (p.folderId === id ? { ...p, folderId: null } : p));
+      await Promise.all([saveFolders(nextFolders), savePrompts(nextPrompts)]);
+      setPrompts((prev) =>
+        sortPrompts(prev.map((p) => (p.folderId === id ? { ...p, folderId: null } : p))),
+      );
+    },
+    [folders, persist],
+  );
+
+  /** 移动 Prompt 到目录（null = 未分组） */
+  const movePrompt = useCallback(
+    (id: string, folderId: string | null) => {
+      void patchPrompt(id, { folderId });
+    },
+    [patchPrompt],
   );
 
   /** 置顶/取消置顶 */
@@ -224,6 +293,7 @@ export function usePromptManager() {
   return {
     prompts,
     templates,
+    folders,
     activePrompt,
     loading,
     status,
@@ -237,5 +307,9 @@ export function usePromptManager() {
     updateTemplate,
     togglePin,
     recordCopy,
+    addFolder,
+    renameFolder,
+    removeFolder,
+    movePrompt,
   };
 }
