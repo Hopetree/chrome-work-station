@@ -66,6 +66,9 @@ export default function PromptManager() {
     recordCopy,
     folders,
     addFolder,
+    collapsedGroups,
+    toggleGroupCollapsed,
+    expandGroup,
     reorderFolders,
     renameFolder,
     removeFolder,
@@ -82,7 +85,6 @@ export default function PromptManager() {
   const [deletingPrompt, setDeletingPrompt] = useState<PromptItem | null>(null);
   const [deletingTemplate, setDeletingTemplate] = useState<TemplateItem | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<FolderItem | null>(null);
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [addingFolder, setAddingFolder] = useState(false);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -139,15 +141,6 @@ export default function PromptManager() {
     requestCopy(activePrompt.id, activePrompt.content);
   };
 
-  const toggleFolderCollapsed = (id: string) => {
-    setCollapsedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const startAddFolder = () => {
     setFolderNameDraft('');
     setAddingFolder(true);
@@ -174,13 +167,7 @@ export default function PromptManager() {
   /** 在指定目录中新建 Prompt，并展开该目录 */
   const createPromptIn = async (folderId: string | null) => {
     // 目标分组若处于折叠状态则展开，保证新建后立即可见
-    const key = folderId ?? UNGROUPED_KEY;
-    setCollapsedFolders((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
+    expandGroup(folderId ?? UNGROUPED_KEY);
     await addPrompt(folderId);
   };
 
@@ -475,7 +462,7 @@ export default function PromptManager() {
                 <div className="space-y-2">
                   {sections.map((section) => {
                     const key = section.folder?.id ?? UNGROUPED_KEY;
-                    const collapsed = collapsedFolders.has(key);
+                    const collapsed = collapsedGroups.has(key);
                     return (
                       <div
                         key={key}
@@ -495,7 +482,7 @@ export default function PromptManager() {
                             editing={!!section.folder && editingFolderId === section.folder.id}
                             draftName={folderNameDraft}
                             onDraftName={setFolderNameDraft}
-                            onToggle={() => toggleFolderCollapsed(key)}
+                            onToggle={() => toggleGroupCollapsed(key)}
                             onAddPrompt={() => void createPromptIn(section.folder?.id ?? null)}
                             onStartRename={
                               section.folder ? () => startRenameFolder(section.folder!) : undefined

@@ -52,6 +52,7 @@ src/
 |----|------|
 | `prompt-manager:prompts` | `PromptItem[]`：id/title/content/createdAt/updatedAt + folderId?/order?/pinned/copyCount/lastUsedAt |
 | `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?/order?（仅一层，不支持子目录） |
+| `prompt-manager:collapsedGroups` | `string[]`：已折叠的分组 key（目录 id 或 `__ungrouped`），刷新后恢复折叠状态 |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? |
 | `settings:defaultFeature` | 工作台默认功能 id |
 

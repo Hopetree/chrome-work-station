@@ -35,6 +35,7 @@ registry.ts <──注册─────────────┘
 |----------------|--------|
 | `prompt-manager:prompts` | `PromptItem[]`：`{ id, title, content, createdAt, updatedAt, folderId?, order?, pinned?, copyCount?, lastUsedAt? }`（folderId 为空/指向已删目录 = 未分组；order 为拖拽产生的手动顺序） |
 | `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt?, order? }`，仅一层 |
+| `prompt-manager:collapsedGroups` | `string[]`：折叠的分组 key（目录 id / `__ungrouped`）；UI 状态但同样持久化，刷新后保留；删除目录时清理对应 key |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 

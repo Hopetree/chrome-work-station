@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
 import {
+  loadCollapsedGroups,
   loadFolders,
   loadPrompts,
   loadTemplates,
+  saveCollapsedGroups,
   saveFolders,
   savePrompts,
   saveTemplates,
@@ -31,6 +33,8 @@ export function usePromptManager() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
+  /** 折叠的分组 key（目录 id 或未分组哨兵），持久化以在刷新后保留 */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -57,6 +61,9 @@ export function usePromptManager() {
     });
     loadFolders().then((items) => {
       if (!cancelled) setFolders(items);
+    });
+    loadCollapsedGroups().then((ids) => {
+      if (!cancelled) setCollapsedGroups(new Set(ids));
     });
     return () => {
       cancelled = true;
@@ -240,6 +247,30 @@ export function usePromptManager() {
     [folders],
   );
 
+  /** 折叠/展开某个分组（持久化） */
+  const toggleGroupCollapsed = useCallback(
+    (key: string) => {
+      const next = new Set(collapsedGroups);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setCollapsedGroups(next);
+      void saveCollapsedGroups([...next]);
+    },
+    [collapsedGroups],
+  );
+
+  /** 展开指定分组（新建 Prompt 时确保可见） */
+  const expandGroup = useCallback(
+    (key: string) => {
+      if (!collapsedGroups.has(key)) return;
+      const next = new Set(collapsedGroups);
+      next.delete(key);
+      setCollapsedGroups(next);
+      void saveCollapsedGroups([...next]);
+    },
+    [collapsedGroups],
+  );
+
   /** 拖拽调整目录顺序：把 draggedId 放到 beforeId 之前（null = 末尾） */
   const reorderFolders = useCallback(
     async (draggedId: string, beforeId: string | null) => {
@@ -269,6 +300,13 @@ export function usePromptManager() {
       if (latestDraft.current) await persist();
       const nextFolders = folders.filter((f) => f.id !== id);
       setFolders(nextFolders);
+      // 一并清掉该目录的折叠记录，避免残留无用状态
+      if (collapsedGroups.has(id)) {
+        const nextCollapsed = new Set(collapsedGroups);
+        nextCollapsed.delete(id);
+        setCollapsedGroups(nextCollapsed);
+        void saveCollapsedGroups([...nextCollapsed]);
+      }
       const current = await loadPrompts();
       const nextPrompts = current.map((p) => (p.folderId === id ? { ...p, folderId: null } : p));
       await Promise.all([saveFolders(nextFolders), savePrompts(nextPrompts)]);
@@ -350,6 +388,9 @@ export function usePromptManager() {
     togglePin,
     recordCopy,
     addFolder,
+    collapsedGroups,
+    toggleGroupCollapsed,
+    expandGroup,
     reorderFolders,
     renameFolder,
     removeFolder,
