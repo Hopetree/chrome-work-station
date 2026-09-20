@@ -69,7 +69,15 @@ registry.ts <──注册─────────────┘
 
 ### 4.4 数据备份（lib/backup.ts）
 
-`mergeBackup(localPrompts, localTemplates, parsed)`：按 id 对齐，`updatedAt` 新者胜（模板回退 `createdAt`）；畸形条目跳过；payload 缺数组抛错。设置页导出为 Blob 下载，导入用隐藏 file input。
+`mergeBackup(localPrompts, localTemplates, localFolders, parsed)`：按 id 对齐，时间戳新者胜（`updatedAt ?? createdAt`，早期数据缺 `updatedAt` 时回退到 `createdAt`）；畸形条目跳过；payload 缺 prompts/templates 抛错。
+
+**历史数据兼容规则**（新增字段时的义务）：
+- 条目校验只强制 `id`/`content`/`createdAt`，`updatedAt` 与所有后加字段一律可选 —— 早期模板没有 `updatedAt`，过严的校验会让它们被静默丢弃
+- 旧备份没有 `folders` 字段时按空目录处理
+- 旧字段原样导出（不注入新字段），未改动的条目在读写后保持字节一致
+- 纯 UI 偏好（`collapsedGroups`、`editorWrap`）不进入备份，导入后回到默认值
+
+设置页导出为 Blob 下载，导入用隐藏 file input。
 
 ### 4.4 通用控件
 

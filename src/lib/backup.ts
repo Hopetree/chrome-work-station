@@ -34,7 +34,7 @@ export function buildBackup(
   };
 }
 
-const stampOf = (item: TemplateItem | FolderItem) => item.updatedAt ?? item.createdAt;
+const stampOf = (item: PromptItem | TemplateItem | FolderItem) => item.updatedAt ?? item.createdAt;
 
 /**
  * 把导入的数据合并进本地：按 id 对齐，新者胜。
@@ -66,7 +66,7 @@ export function mergeBackup(
     if (!local) {
       localPromptMap.set(item.id, item);
       added += 1;
-    } else if (item.updatedAt > local.updatedAt) {
+    } else if (stampOf(item) > stampOf(local)) {
       localPromptMap.set(item.id, { ...local, ...item });
       updated += 1;
     }
@@ -107,6 +107,10 @@ export function mergeBackup(
   };
 }
 
+/**
+ * 条目形状校验：只要求 id/content/createdAt。
+ * updatedAt 在早期版本中缺失是常态（模板在支持编辑前没有该字段），因此允许缺省。
+ */
 function isItemShape(item: unknown): item is Record<string, unknown> & { id: string } {
   if (typeof item !== 'object' || item === null) return false;
   const it = item as Record<string, unknown>;
@@ -114,8 +118,8 @@ function isItemShape(item: unknown): item is Record<string, unknown> & { id: str
     typeof it.id === 'string' &&
     it.id.length > 0 &&
     typeof it.createdAt === 'number' &&
-    typeof it.updatedAt === 'number' &&
-    typeof it.content === 'string'
+    typeof it.content === 'string' &&
+    (it.updatedAt === undefined || typeof it.updatedAt === 'number')
   );
 }
 
