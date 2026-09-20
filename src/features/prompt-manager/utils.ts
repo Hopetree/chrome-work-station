@@ -108,13 +108,47 @@ export function topOrderIn(prompts: PromptItem[], folderId: string | null): numb
   return Math.min(...siblings.map(orderOf)) - 1;
 }
 
-export function createFolderItem(name: string, now = Date.now()): FolderItem {
-  return { id: generateId(), name: name.trim() || '未命名目录', createdAt: now, updatedAt: now };
+export function createFolderItem(name: string, now = Date.now(), order?: number): FolderItem {
+  return {
+    id: generateId(),
+    name: name.trim() || '未命名目录',
+    createdAt: now,
+    updatedAt: now,
+    ...(order === undefined ? {} : { order }),
+  };
 }
 
-/** 目录按创建时间排序（固定顺序，重命名不改变位置） */
+function folderOrderOf(folder: FolderItem): number {
+  return typeof folder.order === 'number' ? folder.order : Number.MAX_SAFE_INTEGER;
+}
+
+/** 目录排序：手动顺序优先，其次创建时间 */
 export function sortFolders(folders: FolderItem[]): FolderItem[] {
-  return [...folders].sort((a, b) => a.createdAt - b.createdAt);
+  return [...folders].sort(
+    (a, b) => folderOrderOf(a) - folderOrderOf(b) || a.createdAt - b.createdAt,
+  );
+}
+
+/** 新建目录追加到末尾时使用的 order */
+export function bottomFolderOrderIn(folders: FolderItem[]): number {
+  const ordered = folders.map(folderOrderOf).filter((value) => value !== Number.MAX_SAFE_INTEGER);
+  return ordered.length > 0 ? Math.max(...ordered) + 1 : folders.length;
+}
+
+/** 目录拖拽落点：把 draggedId 放到 beforeId 之前（null = 末尾），并重排全部目录的 order */
+export function computeFolderDropOrder(
+  folders: FolderItem[],
+  draggedId: string,
+  beforeId: string | null,
+): FolderItem[] {
+  const dragged = folders.find((f) => f.id === draggedId);
+  if (!dragged) return folders;
+  const rest = sortFolders(folders.filter((f) => f.id !== draggedId));
+  const insertIndex = beforeId ? rest.findIndex((f) => f.id === beforeId) : rest.length;
+  const ordered = [...rest];
+  ordered.splice(insertIndex === -1 ? rest.length : insertIndex, 0, dragged);
+  const orderById = new Map(ordered.map((folder, index) => [folder.id, index]));
+  return folders.map((folder) => ({ ...folder, order: orderById.get(folder.id) ?? 0 }));
 }
 
 export interface PromptSection {

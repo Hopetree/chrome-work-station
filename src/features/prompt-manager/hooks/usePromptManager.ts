@@ -9,7 +9,9 @@ import {
   saveTemplates,
 } from '../storage';
 import {
+  bottomFolderOrderIn,
   computeDropOrder,
+  computeFolderDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
@@ -229,11 +231,21 @@ export function usePromptManager() {
   /** 新建目录，返回新目录 id */
   const addFolder = useCallback(
     async (name: string): Promise<string> => {
-      const folder = createFolderItem(name);
+      const folder = createFolderItem(name, Date.now(), bottomFolderOrderIn(folders));
       const next = [...folders, folder];
       setFolders(next);
       await saveFolders(next);
       return folder.id;
+    },
+    [folders],
+  );
+
+  /** 拖拽调整目录顺序：把 draggedId 放到 beforeId 之前（null = 末尾） */
+  const reorderFolders = useCallback(
+    async (draggedId: string, beforeId: string | null) => {
+      const next = computeFolderDropOrder(folders, draggedId, beforeId);
+      setFolders(next);
+      await saveFolders(next);
     },
     [folders],
   );
@@ -338,6 +350,7 @@ export function usePromptManager() {
     togglePin,
     recordCopy,
     addFolder,
+    reorderFolders,
     renameFolder,
     removeFolder,
     movePrompt,

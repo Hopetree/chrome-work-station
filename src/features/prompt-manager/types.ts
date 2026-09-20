@@ -21,6 +21,8 @@ export interface FolderItem {
   name: string;
   createdAt: number;
   updatedAt?: number;
+  /** 手动排序位置（拖动目录产生）；未设置时按创建时间排序 */
+  order?: number;
 }
 
 export interface TemplateItem {

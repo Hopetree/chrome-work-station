@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bottomFolderOrderIn,
   computeDropOrder,
+  computeFolderDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
@@ -255,5 +257,43 @@ describe('topOrderIn', () => {
 
   it('returns 0 for an empty group', () => {
     expect(topOrderIn([], null)).toBe(0);
+  });
+});
+
+describe('目录手动顺序', () => {
+  const folders = [
+    { id: 'a', name: 'A', createdAt: 1 },
+    { id: 'b', name: 'B', createdAt: 2 },
+    { id: 'c', name: 'C', createdAt: 3 },
+  ];
+
+  it('sorts by order first, falling back to createdAt', () => {
+    const list = [
+      { id: 'a', name: 'A', createdAt: 1, order: 2 },
+      { id: 'b', name: 'B', createdAt: 2, order: 0 },
+      { id: 'c', name: 'C', createdAt: 3 },
+    ];
+    expect(sortFolders(list).map((f) => f.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('appends new folders at the end (no explicit order yet)', () => {
+    expect(bottomFolderOrderIn(folders)).toBe(3);
+  });
+
+  it('appends after explicitly ordered folders', () => {
+    const ordered = folders.map((f, i) => ({ ...f, order: i }));
+    expect(bottomFolderOrderIn(ordered)).toBe(3);
+  });
+
+  it('reorders folders before a target folder', () => {
+    const next = computeFolderDropOrder(folders, 'c', 'a');
+    const sorted = [...next].sort((x, y) => (x.order ?? 0) - (y.order ?? 0)).map((f) => f.id);
+    expect(sorted).toEqual(['c', 'a', 'b']);
+  });
+
+  it('appends when beforeId is null', () => {
+    const next = computeFolderDropOrder(folders, 'a', null);
+    const sorted = [...next].sort((x, y) => (x.order ?? 0) - (y.order ?? 0)).map((f) => f.id);
+    expect(sorted).toEqual(['b', 'c', 'a']);
   });
 });

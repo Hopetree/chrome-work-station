@@ -34,7 +34,7 @@ registry.ts <──注册─────────────┘
 | 键（去掉前缀） | Schema |
 |----------------|--------|
 | `prompt-manager:prompts` | `PromptItem[]`：`{ id, title, content, createdAt, updatedAt, folderId?, order?, pinned?, copyCount?, lastUsedAt? }`（folderId 为空/指向已删目录 = 未分组；order 为拖拽产生的手动顺序） |
-| `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt? }`，仅一层 |
+| `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt?, order? }`，仅一层 |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 
@@ -61,6 +61,8 @@ registry.ts <──注册─────────────┘
 - 排序：`sortPrompts` = 置顶优先 → `order` 升序 → `updatedAt` 降序（未拖过的排在已手动排序的之后）
 - 落点计算：`computeDropOrder(prompts, draggedId, targetFolderId, beforeId)` 纯函数，返回重排后的完整列表（目标分组内全部成员重排 order；beforeId=null 追加末尾）
 - 交互：卡片左侧拖拽把手（HTML5 draggable），卡片上/下半区决定插入位置并渲染指示线；分组容器可接收拖放（高亮提示），落空组即追加
+- 目录排序：`computeFolderDropOrder` 同构实现，目录行左侧把手可拖；`bottomFolderOrderIn` 让新建目录落到末尾；未分组是虚拟分组，不参与排序且恒在最后
+- 两类拖拽用独立状态（draggingId / draggingFolderId）并在对方的处理函数中先行返回，互不干扰
 - 新建 Prompt 与菜单「移动到目录」用 `topOrderIn` 插入目标分组顶部
 
 ### 4.4 数据备份（lib/backup.ts）

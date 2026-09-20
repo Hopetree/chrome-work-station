@@ -67,6 +67,7 @@ export default function PromptManager() {
     recordCopy,
     folders,
     addFolder,
+    reorderFolders,
     renameFolder,
     removeFolder,
     movePrompt,
@@ -92,6 +93,11 @@ export default function PromptManager() {
     null,
   );
   const [folderDropKey, setFolderDropKey] = useState<string | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [folderOrderHint, setFolderOrderHint] = useState<{
+    id: string;
+    position: 'before' | 'after';
+  } | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
@@ -189,11 +195,13 @@ export default function PromptManager() {
     setDraggingId(null);
     setDropHint(null);
     setFolderDropKey(null);
+    setDraggingFolderId(null);
+    setFolderOrderHint(null);
   };
 
   /** 落到某张卡片上：按鼠标在卡片上半/下半决定插到前面还是后面 */
   const handleCardDragOver = (e: React.DragEvent, item: PromptItem) => {
-    if (!draggingId || draggingId === item.id) return;
+    if (draggingFolderId || !draggingId || draggingId === item.id) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -223,9 +231,42 @@ export default function PromptManager() {
     await dropPrompt(dragged, targetFolderId, anchor);
   };
 
+  const handleFolderDragStart = (e: React.DragEvent, id: string) => {
+    setDraggingFolderId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, folder: FolderItem) => {
+    if (!draggingFolderId || draggingFolderId === folder.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setFolderOrderHint({
+      id: folder.id,
+      position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+    });
+  };
+
+  const handleFolderDrop = async (e: React.DragEvent, folder: FolderItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dragged = draggingFolderId;
+    const hint = folderOrderHint;
+    clearDragState();
+    if (!dragged || dragged === folder.id) return;
+    const displayed = sections.filter((s) => s.folder).map((s) => s.folder!.id);
+    const index = displayed.indexOf(folder.id);
+    const anchor =
+      hint?.id === folder.id && hint.position === 'after'
+        ? (displayed[index + 1] ?? null)
+        : folder.id;
+    await reorderFolders(dragged, anchor);
+  };
+
   /** 落到分组的空白区域：追加到该分组末尾 */
   const handleSectionDragOver = (e: React.DragEvent, key: string) => {
-    if (!draggingId) return;
+    if (draggingFolderId || !draggingId) return;
     e.preventDefault();
     setDropHint(null);
     setFolderDropKey(key);
@@ -468,6 +509,16 @@ export default function PromptManager() {
                               setEditingFolderId(null);
                               setFolderNameDraft('');
                             }}
+                            dragging={!!section.folder && draggingFolderId === section.folder.id}
+                            dropHint={
+                              section.folder && folderOrderHint?.id === section.folder.id
+                                ? folderOrderHint.position
+                                : null
+                            }
+                            onDragStart={handleFolderDragStart}
+                            onDragOver={handleFolderDragOver}
+                            onDrop={handleFolderDrop}
+                            onDragEnd={clearDragState}
                           />
                         )}
                         {!collapsed &&
@@ -753,6 +804,12 @@ function FolderHeader({
   onDelete,
   onSubmitName,
   onCancelEdit,
+  dragging,
+  dropHint,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   folder: FolderItem | null;
   count: number;
@@ -766,9 +823,43 @@ function FolderHeader({
   onDelete?: () => void;
   onSubmitName: () => void;
   onCancelEdit: () => void;
+  dragging: boolean;
+  dropHint: 'before' | 'after' | null;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onDragOver: (e: React.DragEvent, folder: FolderItem) => void;
+  onDrop: (e: React.DragEvent, folder: FolderItem) => void;
+  onDragEnd: () => void;
 }) {
   return (
-    <div className="group/folder flex items-center gap-1 rounded-md px-1 py-1 transition hover:bg-zinc-200/50">
+    <div
+      className={`group/folder relative flex items-center gap-1 rounded-md py-1 pl-1 pr-1 transition hover:bg-zinc-200/50 ${
+        dragging ? 'opacity-40' : ''
+      }`}
+      onDragOver={(e) => {
+        if (folder) onDragOver(e, folder);
+      }}
+      onDrop={(e) => {
+        if (folder) void onDrop(e, folder);
+      }}
+    >
+      {dropHint === 'before' && (
+        <span className="pointer-events-none absolute -top-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
+      {dropHint === 'after' && (
+        <span className="pointer-events-none absolute -bottom-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
+      {folder && (
+        <span
+          draggable
+          onDragStart={(e) => onDragStart(e, folder.id)}
+          onDragEnd={onDragEnd}
+          title="拖动调整目录顺序"
+          className="hidden shrink-0 cursor-grab rounded p-0.5 text-zinc-300 group-hover/folder:block hover:bg-zinc-100 hover:text-zinc-500"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
+      )}
+      {!folder && <span className="shrink-0 pl-0.5 pr-0.5" aria-hidden />}
       <button
         onClick={onToggle}
         aria-expanded={!collapsed}

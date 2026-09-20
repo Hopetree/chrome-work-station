@@ -51,7 +51,7 @@ src/
 | 键 | 内容 |
 |----|------|
 | `prompt-manager:prompts` | `PromptItem[]`：id/title/content/createdAt/updatedAt + folderId?/order?/pinned/copyCount/lastUsedAt |
-| `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?（仅一层，不支持子目录） |
+| `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?/order?（仅一层，不支持子目录） |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? |
 | `settings:defaultFeature` | 工作台默认功能 id |
 
@@ -62,7 +62,8 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 - **功能深链**：`workbench.html?feature=<id>`，workbench/App.tsx 解析并 `history.replaceState` 同步
 - **自动保存**：编辑停止后 1500ms 防抖合并落盘（`usePromptManager` 的 latestDraft）；**persist/patchPrompt 只重排本地状态、绝不用存储值整体替换**（否则会覆盖输入中的内容并把光标顶到末尾）；置顶/计数/移动目录等元数据走 `patchPrompt`（先冲刷草稿再写，防覆盖）
 - **目录**：`groupPromptsByFolder` 按目录分组渲染，未分组殿后（可折叠）；删除目录只把 Prompt 置回未分组
-- **手动排序**：拖动卡片调序/跨目录产生 `order`（`computeDropOrder` 纯函数重排该分组 order）；排序规则 = 置顶 → order → 最近修改，未拖过的走最近修改；新建/菜单移动插入分组顶部（`topOrderIn`）
+- **手动排序**：拖动产生 `order` —— 卡片（`computeDropOrder`）与目录（`computeFolderDropOrder`）各自独立；卡片排序 = 置顶 → order → 最近修改，新建/菜单移动插入分组顶部（`topOrderIn`）；目录排序 = order → createdAt，新建目录追加末尾（`bottomFolderOrderIn`）；未分组恒在最后且不可拖动
+- **拖拽隔离**：`draggingId`（卡片）与 `draggingFolderId`（目录）互斥，各自的 dragover/drop 处理先判断对方状态，避免交叉触发
 - **变量复制**：内容含 `{{变量}}` 时 CopyDialog 填空（`extractVariables`/`fillVariables`），空白值视为未填写保留原文
 - **数据备份**：`lib/backup.ts` 的 `mergeBackup` 按 id 合并、新 updatedAt 者胜
 - **预览服务器**：`scripts/preview-server.mjs` 注入 chrome.* shim（runtime.id 必须存在，否则 WXT polyfill 抛错），storage 用 sessionStorage 兜底持久化
