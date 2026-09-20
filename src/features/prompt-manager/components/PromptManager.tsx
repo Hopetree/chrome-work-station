@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Copy,
   FileText,
-  Folder,
   FolderInput,
   FolderPlus,
   GripVertical,
@@ -832,7 +831,7 @@ function FolderHeader({
 }) {
   return (
     <div
-      className={`group/folder relative flex items-center gap-1 rounded-md py-1 pl-1 pr-1 transition hover:bg-zinc-200/50 ${
+      className={`group/folder relative flex items-center gap-0.5 rounded-md py-1 pl-1 pr-1 transition hover:bg-zinc-200/50 ${
         dragging ? 'opacity-40' : ''
       }`}
       onDragOver={(e) => {
@@ -854,23 +853,22 @@ function FolderHeader({
           onDragStart={(e) => onDragStart(e, folder.id)}
           onDragEnd={onDragEnd}
           title="拖动调整目录顺序"
-          className="shrink-0 cursor-grab rounded p-0.5 text-zinc-300 opacity-0 transition group-hover/folder:opacity-100 focus-visible:opacity-100 hover:bg-zinc-100 hover:text-zinc-500"
+          className="shrink-0 cursor-grab rounded text-zinc-300 opacity-0 transition group-hover/folder:opacity-100 focus-visible:opacity-100 hover:bg-zinc-100 hover:text-zinc-500"
         >
           <GripVertical className="h-3.5 w-3.5" />
         </span>
       )}
-      {!folder && <span className="w-[18px] shrink-0" aria-hidden />}
+      {!folder && <span className="w-3.5 shrink-0" aria-hidden />}
       <button
         onClick={onToggle}
         aria-expanded={!collapsed}
         title={collapsed ? '展开' : '折叠'}
-        className="grid h-5 w-5 shrink-0 place-items-center rounded text-zinc-400 transition hover:text-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        className="grid h-4 w-4 shrink-0 place-items-center rounded text-zinc-400 transition hover:text-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
       >
         <ChevronDown
           className={`h-3.5 w-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`}
         />
       </button>
-      <Folder className="h-3.5 w-3.5 shrink-0 text-teal-700/70" />
       {editing ? (
         <input
           autoFocus
@@ -886,7 +884,7 @@ function FolderHeader({
       ) : (
         <button
           onClick={onToggle}
-          className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-zinc-600"
+          className="min-w-0 flex-1 truncate pl-0.5 text-left text-[12px] font-medium text-zinc-600"
         >
           {folder?.name ?? '未分组'}
         </button>
