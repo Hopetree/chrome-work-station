@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
@@ -11,6 +12,7 @@ import {
   groupPromptsByFolder,
   sortFolders,
   sortPrompts,
+  topOrderIn,
 } from './utils';
 
 describe('createTemplateFromPrompt', () => {
@@ -182,5 +184,76 @@ describe('formatUpdatedAt', () => {
   it('formats other days without year in same year', () => {
     const earlier = new Date('2026-03-01T10:00:00').getTime();
     expect(formatUpdatedAt(earlier, now)).toBe('03-01');
+  });
+});
+
+describe('sortPrompts 手动顺序', () => {
+  const base = { title: '', content: '', createdAt: 1 };
+  it('honours order before updatedAt', () => {
+    const list = [
+      { ...base, id: 'a', updatedAt: 100, order: 2 },
+      { ...base, id: 'b', updatedAt: 1, order: 0 },
+      { ...base, id: 'c', updatedAt: 50, order: 1 },
+    ];
+    expect(sortPrompts(list).map((p) => p.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('keeps un-ordered items after ordered ones, by recency', () => {
+    const list = [
+      { ...base, id: 'a', updatedAt: 100 },
+      { ...base, id: 'b', updatedAt: 1, order: 5 },
+      { ...base, id: 'c', updatedAt: 50 },
+    ];
+    expect(sortPrompts(list).map((p) => p.id)).toEqual(['b', 'a', 'c']);
+  });
+});
+
+describe('computeDropOrder', () => {
+  const base = { title: '', content: '', createdAt: 1 };
+  const prompts = [
+    { ...base, id: 'a', updatedAt: 3, folderId: 'f1' },
+    { ...base, id: 'b', updatedAt: 2, folderId: 'f1' },
+    { ...base, id: 'c', updatedAt: 1, folderId: null },
+  ];
+
+  it('reorders within the same folder before a target card', () => {
+    const next = computeDropOrder(prompts, 'c', 'f1', 'b');
+    const f1 = next
+      .filter((p) => p.folderId === 'f1')
+      .sort((x, y) => (x.order ?? 0) - (y.order ?? 0))
+      .map((p) => p.id);
+    expect(f1).toEqual(['a', 'c', 'b']);
+    expect(next.find((p) => p.id === 'c')?.folderId).toBe('f1');
+  });
+
+  it('appends when beforeId is null', () => {
+    const next = computeDropOrder(prompts, 'c', 'f1', null);
+    const f1 = next
+      .filter((p) => p.folderId === 'f1')
+      .sort((x, y) => (x.order ?? 0) - (y.order ?? 0))
+      .map((p) => p.id);
+    expect(f1).toEqual(['a', 'b', 'c']);
+  });
+
+  it('moves into an empty folder with order 0', () => {
+    const next = computeDropOrder(prompts, 'a', 'empty', null);
+    const moved = next.find((p) => p.id === 'a');
+    expect(moved?.folderId).toBe('empty');
+    expect(moved?.order).toBe(0);
+  });
+});
+
+describe('topOrderIn', () => {
+  const base = { title: '', content: '', createdAt: 1 };
+  it('returns a value smaller than existing orders', () => {
+    const prompts = [
+      { ...base, id: 'a', updatedAt: 1, folderId: 'f1', order: 3 },
+      { ...base, id: 'b', updatedAt: 1, folderId: 'f1', order: 7 },
+    ];
+    expect(topOrderIn(prompts, 'f1')).toBe(2);
+  });
+
+  it('returns 0 for an empty group', () => {
+    expect(topOrderIn([], null)).toBe(0);
   });
 });

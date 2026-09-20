@@ -6,6 +6,8 @@ export interface PromptItem {
   updatedAt: number;
   /** 所属目录 id；undefined/null 表示未分组（默认目录） */
   folderId?: string | null;
+  /** 手动排序位置（拖动产生）；未设置时按最近修改排序 */
+  order?: number;
   /** 置顶：常用的 Prompt 排在列表最前 */
   pinned?: boolean;
   /** 累计复制次数 */

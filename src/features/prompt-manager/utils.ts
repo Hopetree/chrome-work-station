@@ -57,11 +57,55 @@ export function fillVariables(content: string, values: Record<string, string>): 
   });
 }
 
-/** 排序：置顶优先，其余按最近修改 */
+/** 排序：置顶优先 → 手动顺序 → 最近修改（未手动排序过的排在有顺序的之后） */
 export function sortPrompts(prompts: PromptItem[]): PromptItem[] {
   return [...prompts].sort(
-    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt,
+    (a, b) =>
+      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+      orderOf(a) - orderOf(b) ||
+      b.updatedAt - a.updatedAt,
   );
+}
+
+function orderOf(item: PromptItem): number {
+  return typeof item.order === 'number' ? item.order : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * 计算拖拽落点后的结果：把 draggedId 放进目标分组、插入到 beforeId 之前（null = 末尾），
+ * 并为目标分组的全部成员重排 order。返回新的 Prompt 列表（不改动其他分组的顺序）。
+ */
+export function computeDropOrder(
+  prompts: PromptItem[],
+  draggedId: string,
+  targetFolderId: string | null,
+  beforeId: string | null,
+): PromptItem[] {
+  const dragged = prompts.find((p) => p.id === draggedId);
+  if (!dragged) return prompts;
+
+  const siblings = sortPrompts(
+    prompts.filter((p) => p.id !== draggedId && (p.folderId ?? null) === targetFolderId),
+  );
+  const insertIndex = beforeId ? siblings.findIndex((s) => s.id === beforeId) : siblings.length;
+  const ordered = [...siblings];
+  ordered.splice(insertIndex === -1 ? siblings.length : insertIndex, 0, dragged);
+
+  const orderById = new Map(ordered.map((item, index) => [item.id, index]));
+  return prompts.map((item) => {
+    if (item.id === draggedId) {
+      return { ...item, folderId: targetFolderId, order: orderById.get(item.id) ?? 0 };
+    }
+    const nextOrder = orderById.get(item.id);
+    return nextOrder === undefined ? item : { ...item, order: nextOrder };
+  });
+}
+
+/** 新条目插入到分组顶部时使用的 order（比现有最小值更小） */
+export function topOrderIn(prompts: PromptItem[], folderId: string | null): number {
+  const siblings = prompts.filter((p) => (p.folderId ?? null) === folderId);
+  if (siblings.length === 0) return 0;
+  return Math.min(...siblings.map(orderOf)) - 1;
 }
 
 export function createFolderItem(name: string, now = Date.now()): FolderItem {

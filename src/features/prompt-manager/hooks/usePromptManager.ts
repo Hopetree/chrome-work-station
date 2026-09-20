@@ -9,11 +9,13 @@ import {
   saveTemplates,
 } from '../storage';
 import {
+  computeDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
   sortPrompts,
+  topOrderIn,
 } from '../utils';
 
 // 停止输入后延迟落盘；输入过程中不保存，避免打断输入和造成卡顿
@@ -123,7 +125,10 @@ export function usePromptManager() {
     async (folderId: string | null = null) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (latestDraft.current) await persist();
-      const item = createPromptItem(Date.now(), folderId);
+      const item = {
+        ...createPromptItem(Date.now(), folderId),
+        order: topOrderIn(prompts, folderId),
+      };
       const next = sortPrompts([item, ...prompts]);
       setPrompts(next);
       setActiveId(item.id);
@@ -262,12 +267,37 @@ export function usePromptManager() {
     [folders, persist],
   );
 
-  /** 移动 Prompt 到目录（null = 未分组） */
+  /**
+   * 拖拽落点：把 Prompt 放进目标分组并排在 beforeId 之前（beforeId=null 时追加到末尾；
+   * prepend=true 时插入到顶部）。同时重算该分组的 order。
+   */
+  const dropPrompt = useCallback(
+    async (
+      draggedId: string,
+      targetFolderId: string | null,
+      beforeId: string | null,
+      prepend = false,
+    ) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestDraft.current) await persist();
+      const current = await loadPrompts();
+      const siblings = sortPrompts(
+        current.filter((p) => p.id !== draggedId && (p.folderId ?? null) === targetFolderId),
+      );
+      const anchor = prepend ? (siblings[0]?.id ?? null) : beforeId;
+      const next = computeDropOrder(current, draggedId, targetFolderId, anchor);
+      await savePrompts(next);
+      setPrompts(sortPrompts(next));
+    },
+    [persist],
+  );
+
+  /** 移动 Prompt 到目录（null = 未分组），插入到目标分组顶部 */
   const movePrompt = useCallback(
     (id: string, folderId: string | null) => {
-      void patchPrompt(id, { folderId });
+      void dropPrompt(id, folderId, null, true);
     },
-    [patchPrompt],
+    [dropPrompt],
   );
 
   /** 置顶/取消置顶 */
@@ -311,5 +341,6 @@ export function usePromptManager() {
     renameFolder,
     removeFolder,
     movePrompt,
+    dropPrompt,
   };
 }

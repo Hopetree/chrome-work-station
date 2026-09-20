@@ -9,6 +9,7 @@ import {
   Folder,
   FolderInput,
   FolderPlus,
+  GripVertical,
   LayoutTemplate,
   Loader2,
   Pencil,
@@ -69,6 +70,7 @@ export default function PromptManager() {
     renameFolder,
     removeFolder,
     movePrompt,
+    dropPrompt,
   } = usePromptManager();
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
@@ -85,6 +87,11 @@ export default function PromptManager() {
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{ id: string; position: 'before' | 'after' } | null>(
+    null,
+  );
+  const [folderDropKey, setFolderDropKey] = useState<string | null>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
@@ -170,6 +177,66 @@ export default function PromptManager() {
       return next;
     });
     await addPrompt(folderId);
+  };
+
+  const handleCardDragStart = (e: React.DragEvent, id: string) => {
+    setDraggingId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const clearDragState = () => {
+    setDraggingId(null);
+    setDropHint(null);
+    setFolderDropKey(null);
+  };
+
+  /** 落到某张卡片上：按鼠标在卡片上半/下半决定插到前面还是后面 */
+  const handleCardDragOver = (e: React.DragEvent, item: PromptItem) => {
+    if (!draggingId || draggingId === item.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const position: 'before' | 'after' =
+      e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    setFolderDropKey(null);
+    setDropHint({ id: item.id, position });
+  };
+
+  const handleCardDrop = async (e: React.DragEvent, item: PromptItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dragged = draggingId;
+    const hint = dropHint;
+    clearDragState();
+    if (!dragged || dragged === item.id) return;
+    const targetFolderId = item.folderId ?? null;
+    // 锚点 = 插入位置后面那张卡片；落点在某卡片下半部时锚点为它的下一张（没有则追加到末尾）
+    const displayed = sections
+      .flatMap((section) => section.prompts)
+      .filter((p) => (p.folderId ?? null) === targetFolderId);
+    const index = displayed.findIndex((p) => p.id === item.id);
+    const anchor =
+      hint?.id === item.id && hint.position === 'after'
+        ? (displayed[index + 1]?.id ?? null)
+        : item.id;
+    await dropPrompt(dragged, targetFolderId, anchor);
+  };
+
+  /** 落到分组的空白区域：追加到该分组末尾 */
+  const handleSectionDragOver = (e: React.DragEvent, key: string) => {
+    if (!draggingId) return;
+    e.preventDefault();
+    setDropHint(null);
+    setFolderDropKey(key);
+  };
+
+  const handleSectionDrop = async (e: React.DragEvent, folderId: string | null) => {
+    e.preventDefault();
+    const dragged = draggingId;
+    clearDragState();
+    if (!dragged) return;
+    await dropPrompt(dragged, folderId, null);
   };
 
   const handleSaveAsTemplate = async () => {
@@ -352,6 +419,12 @@ export default function PromptManager() {
                         onRequestCopy={requestCopy}
                         onRequestDelete={setDeletingPrompt}
                         onMove={movePrompt}
+                        dragging={draggingId === item.id}
+                        dropHint={dropHint?.id === item.id ? dropHint.position : null}
+                        onDragStart={handleCardDragStart}
+                        onDragOver={handleCardDragOver}
+                        onDrop={handleCardDrop}
+                        onDragEnd={clearDragState}
                       />
                     ))}
                   </ul>
@@ -364,7 +437,16 @@ export default function PromptManager() {
                     const key = section.folder?.id ?? UNGROUPED_KEY;
                     const collapsed = collapsedFolders.has(key);
                     return (
-                      <div key={key}>
+                      <div
+                        key={key}
+                        onDragOver={(e) => handleSectionDragOver(e, key)}
+                        onDrop={(e) => void handleSectionDrop(e, section.folder?.id ?? null)}
+                        className={`rounded-md transition ${
+                          folderDropKey === key
+                            ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300'
+                            : ''
+                        }`}
+                      >
                         {folders.length > 0 && (
                           <FolderHeader
                             folder={section.folder}
@@ -414,6 +496,12 @@ export default function PromptManager() {
                                   onRequestCopy={requestCopy}
                                   onRequestDelete={setDeletingPrompt}
                                   onMove={movePrompt}
+                                  dragging={draggingId === item.id}
+                                  dropHint={dropHint?.id === item.id ? dropHint.position : null}
+                                  onDragStart={handleCardDragStart}
+                                  onDragOver={handleCardDragOver}
+                                  onDrop={handleCardDrop}
+                                  onDragEnd={clearDragState}
                                 />
                               ))}
                             </ul>
@@ -757,6 +845,12 @@ function PromptCardRow({
   onRequestCopy,
   onRequestDelete,
   onMove,
+  dragging,
+  dropHint,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   item: PromptItem;
   active: boolean;
@@ -769,10 +863,26 @@ function PromptCardRow({
   onRequestCopy: (id: string, content: string) => void;
   onRequestDelete: (item: PromptItem) => void;
   onMove: (id: string, folderId: string | null) => void;
+  dragging: boolean;
+  dropHint: 'before' | 'after' | null;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onDragOver: (e: React.DragEvent, item: PromptItem) => void;
+  onDrop: (e: React.DragEvent, item: PromptItem) => void;
+  onDragEnd: () => void;
 }) {
   const currentFolderId = item.folderId ?? null;
   return (
-    <li className="group relative">
+    <li
+      className={`group relative ${dragging ? 'opacity-40' : ''}`}
+      onDragOver={(e) => onDragOver(e, item)}
+      onDrop={(e) => void onDrop(e, item)}
+    >
+      {dropHint === 'before' && (
+        <span className="pointer-events-none absolute -top-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
+      {dropHint === 'after' && (
+        <span className="pointer-events-none absolute -bottom-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
       <button
         onClick={() => onSelect(item.id)}
         className={`w-full rounded-md px-2.5 py-2 pr-24 text-left transition ${
@@ -798,6 +908,15 @@ function PromptCardRow({
           {formatUpdatedAt(item.updatedAt)}
         </span>
       </button>
+      <span
+        draggable
+        onDragStart={(e) => onDragStart(e, item.id)}
+        onDragEnd={onDragEnd}
+        title="拖动调整顺序或分组"
+        className="absolute left-0 top-1/2 hidden -translate-y-1/2 cursor-grab rounded p-0.5 text-zinc-300 group-hover:block hover:text-zinc-500"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
       <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
         <button
           onClick={() => onTogglePin(item.id)}
