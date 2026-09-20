@@ -885,7 +885,7 @@ function PromptCardRow({
       )}
       <button
         onClick={() => onSelect(item.id)}
-        className={`w-full rounded-md px-2.5 py-2 pr-24 text-left transition ${
+        className={`w-full rounded-md py-2 pl-7 pr-24 text-left transition ${
           active
             ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
             : 'hover:bg-white hover:shadow-sm'
@@ -913,7 +913,7 @@ function PromptCardRow({
         onDragStart={(e) => onDragStart(e, item.id)}
         onDragEnd={onDragEnd}
         title="拖动调整顺序或分组"
-        className="absolute left-0 top-1/2 hidden -translate-y-1/2 cursor-grab rounded p-0.5 text-zinc-300 group-hover:block hover:text-zinc-500"
+        className="absolute left-1 top-1.5 hidden cursor-grab rounded p-1 text-zinc-300 group-hover:block hover:bg-zinc-100 hover:text-zinc-500"
       >
         <GripVertical className="h-3.5 w-3.5" />
       </span>
