@@ -67,7 +67,14 @@ registry.ts <──注册─────────────┘
 - 两类拖拽用独立状态（draggingId / draggingFolderId）并在对方的处理函数中先行返回，互不干扰
 - 新建 Prompt 与菜单「移动到目录」用 `topOrderIn` 插入目标分组顶部
 
-### 4.4 数据备份（lib/backup.ts）
+### 4.4 编辑器与行号（components/EditorPane.tsx）
+
+Prompt 编辑区与模板编辑区共用同一组件，两种显示模式（`editorWrap`）：
+
+- **不换行**：`wrap="off"` + `whitespace-pre`，每逻辑行渲染一个行号
+- **自动换行**：`wrap="soft"` + `whitespace-pre-wrap break-words`；行号必须仍是「一逻辑行一个」——折行出的续行不显示行号。实现：隐藏镜像元素（同字体/同内边距/同宽度）承载同样文本，由浏览器真实排版后读取每个逻辑行的 `offsetTop`，行号据此绝对定位；镜像宽度在测量时同步为 textarea 的 `clientWidth`，容器高度取 `textarea.scrollHeight`，保证滚动同步精确。测量在 rAF 中合并、并由 ResizeObserver 覆盖宽度变化
+
+### 4.5 数据备份（lib/backup.ts）
 
 `mergeBackup(localPrompts, localTemplates, localFolders, parsed)`：按 id 对齐，时间戳新者胜（`updatedAt ?? createdAt`，早期数据缺 `updatedAt` 时回退到 `createdAt`）；畸形条目跳过；payload 缺 prompts/templates 抛错。
 

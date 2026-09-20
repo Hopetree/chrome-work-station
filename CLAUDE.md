@@ -67,6 +67,7 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 - **手动排序**：拖动产生 `order` —— 卡片（`computeDropOrder`）与目录（`computeFolderDropOrder`）各自独立；卡片排序 = 置顶 → order → 最近修改，新建/菜单移动插入分组顶部（`topOrderIn`）；目录排序 = order → createdAt，新建目录追加末尾（`bottomFolderOrderIn`）；未分组恒在最后且不可拖动
 - **拖拽隔离**：`draggingId`（卡片）与 `draggingFolderId`（目录）互斥，各自的 dragover/drop 处理先判断对方状态，避免交叉触发
 - **变量复制**：内容含 `{{变量}}` 时 CopyDialog 填空（`extractVariables`/`fillVariables`），空白值视为未填写保留原文
+- **编辑器（EditorPane）**：Prompt 编辑区与模板编辑区共用；行号规则为「一个逻辑行一个行号」——自动换行时用隐藏镜像元素测量真实折行位置（绝对定位行号），折行续行不显示行号；不换行时为普通逐行渲染。改编辑器务必保持两种模式下行号与内容对齐
 - **数据备份**：`lib/backup.ts` 的 `mergeBackup` 按 id 合并、时间戳新者胜；**校验必须容忍缺省字段**（只强制 id/content/createdAt，updatedAt 等后加字段可选），否则早期数据会被静默丢弃；UI 偏好不进备份
 - **预览服务器**：`scripts/preview-server.mjs` 注入 chrome.* shim（runtime.id 必须存在，否则 WXT polyfill 抛错），storage 用 sessionStorage 兜底持久化
 

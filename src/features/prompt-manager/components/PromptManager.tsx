@@ -1,5 +1,5 @@
-import { memo, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, UIEvent } from 'react';
+import { useMemo, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import {
   BookmarkPlus,
   Check,
@@ -21,6 +21,7 @@ import {
 import CopyDialog from './CopyDialog';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Checkbox from '@/components/ui/Checkbox';
+import EditorPane from './EditorPane';
 import { usePromptManager } from '../hooks/usePromptManager';
 import {
   extractVariables,
@@ -102,10 +103,8 @@ export default function PromptManager() {
     id: string;
     position: 'before' | 'after';
   } | null>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
-  const lineCount = (activePrompt?.content ?? '').split('\n').length;
   const previewTemplate =
     view === 'templates' ? (templates.find((t) => t.id === previewTemplateId) ?? null) : null;
   const sections = useMemo(() => groupPromptsByFolder(prompts, folders), [prompts, folders]);
@@ -685,30 +684,13 @@ export default function PromptManager() {
               </span>
             </div>
 
-            <div className="flex min-h-0 flex-1">
-              {/* 行号栏：随编辑器滚动同步 */}
-              <div
-                ref={gutterRef}
-                aria-hidden
-                className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 bg-zinc-50 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
-              >
-                <LineNumbers count={lineCount} />
-              </div>
-              <textarea
-                value={activePrompt.content}
-                onChange={(e) => updateActive({ content: e.target.value })}
-                onKeyDown={handleEditorKeyDown}
-                onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
-                  if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
-                }}
-                placeholder="在这里编写 Prompt，可以自由换行…"
-                spellCheck={false}
-                wrap={wrapEnabled ? 'soft' : 'off'}
-                className={`min-h-0 flex-1 resize-none px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300 ${
-                  wrapEnabled ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
-                }`}
-              />
-            </div>
+            <EditorPane
+              value={activePrompt.content}
+              onChange={(content) => updateActive({ content })}
+              onKeyDown={handleEditorKeyDown}
+              placeholder="在这里编写 Prompt，可以自由换行…"
+              wrapEnabled={wrapEnabled}
+            />
 
             <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
               <button
@@ -1094,19 +1076,6 @@ function PromptCardRow({
   );
 }
 
-/** 行号栏内容：只在行数变化时重渲染，避免每次按键都重建整列 DOM */
-const LineNumbers = memo(function LineNumbers({ count }: { count: number }) {
-  return (
-    <>
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="pr-2">
-          {i + 1}
-        </div>
-      ))}
-    </>
-  );
-});
-
 function SaveStatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'idle') return null;
   return (
@@ -1168,9 +1137,6 @@ function TemplateEditor({
   wrapEnabled: boolean;
   setWrapEnabled: (enabled: boolean) => void;
 }) {
-  const gutterRef = useRef<HTMLDivElement>(null);
-  const lineCount = template.content.split('\n').length;
-
   return (
     <>
       <div className="flex items-center gap-2.5 border-b border-zinc-100 px-5 pb-3 pt-4">
@@ -1210,25 +1176,11 @@ function TemplateEditor({
       </div>
 
       <div className="mt-2 flex min-h-0 flex-1 bg-zinc-50/60">
-        <div
-          ref={gutterRef}
-          aria-hidden
-          className="w-11 shrink-0 select-none overflow-hidden border-r border-zinc-100 py-3 text-right font-mono text-[12px] leading-7 text-zinc-300"
-        >
-          <LineNumbers count={lineCount} />
-        </div>
-        <textarea
+        <EditorPane
           value={template.content}
-          onChange={(e) => onChange({ content: e.target.value })}
-          spellCheck={false}
-          wrap={wrapEnabled ? 'soft' : 'off'}
-          onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
-            if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
-          }}
+          onChange={(content) => onChange({ content })}
           placeholder="模板内容，基于它新建时会带入这里的内容"
-          className={`min-h-0 flex-1 resize-none px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300 ${
-            wrapEnabled ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
-          }`}
+          wrapEnabled={wrapEnabled}
         />
       </div>
 
