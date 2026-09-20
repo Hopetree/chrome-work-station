@@ -1,6 +1,6 @@
 {
   "name": "chrome-work-station",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "多功能浏览器工具合集，集成 Prompt 管理等日常开发效率工具",
   "type": "module",
   "scripts": {
