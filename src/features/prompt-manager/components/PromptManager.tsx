@@ -39,6 +39,9 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 
 const INDENT = '    ';
 
+/** 未分组分组的折叠状态 key（与目录 id 同处一个集合） */
+const UNGROUPED_KEY = '__ungrouped';
+
 /** 在编辑器里恢复光标/选区（React 受控更新后执行） */
 function restoreSelection(el: HTMLTextAreaElement, start: number, end: number) {
   requestAnimationFrame(() => el.setSelectionRange(start, end));
@@ -158,13 +161,14 @@ export default function PromptManager() {
 
   /** 在指定目录中新建 Prompt，并展开该目录 */
   const createPromptIn = async (folderId: string | null) => {
-    if (folderId) {
-      setCollapsedFolders((prev) => {
-        const next = new Set(prev);
-        next.delete(folderId);
-        return next;
-      });
-    }
+    // 目标分组若处于折叠状态则展开，保证新建后立即可见
+    const key = folderId ?? UNGROUPED_KEY;
+    setCollapsedFolders((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
     await addPrompt(folderId);
   };
 
@@ -357,10 +361,8 @@ export default function PromptManager() {
               ) : (
                 <div className="space-y-2">
                   {sections.map((section) => {
-                    const key = section.folder?.id ?? '__ungrouped';
-                    const collapsed = section.folder
-                      ? collapsedFolders.has(section.folder.id)
-                      : false;
+                    const key = section.folder?.id ?? UNGROUPED_KEY;
+                    const collapsed = collapsedFolders.has(key);
                     return (
                       <div key={key}>
                         {folders.length > 0 && (
@@ -371,9 +373,7 @@ export default function PromptManager() {
                             editing={!!section.folder && editingFolderId === section.folder.id}
                             draftName={folderNameDraft}
                             onDraftName={setFolderNameDraft}
-                            onToggle={() =>
-                              section.folder ? toggleFolderCollapsed(section.folder.id) : undefined
-                            }
+                            onToggle={() => toggleFolderCollapsed(key)}
                             onAddPrompt={() => void createPromptIn(section.folder?.id ?? null)}
                             onStartRename={
                               section.folder ? () => startRenameFolder(section.folder!) : undefined
