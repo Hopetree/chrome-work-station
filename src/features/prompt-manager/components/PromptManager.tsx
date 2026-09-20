@@ -340,7 +340,8 @@ export default function PromptManager() {
   return (
     <div className="flex h-full min-h-0">
       {/* 列表栏：Prompt 与模板分列表展示 */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
+      {/* 列表栏宽度：240px × 1.4 = 336px */}
+      <aside className="flex w-[336px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
         <div className="px-3 pt-3">
           <div
             className="flex rounded-lg bg-zinc-200/70 p-0.5"
