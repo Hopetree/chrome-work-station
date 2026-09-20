@@ -891,8 +891,10 @@ function FolderHeader({
           {folder?.name ?? '未分组'}
         </button>
       )}
-      <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">{count}</span>
-      <span className="flex shrink-0 gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover/folder:opacity-100">
+      <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-zinc-400">
+        {count}
+      </span>
+      <span className="flex w-[70px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover/folder:opacity-100">
         <button
           onClick={onAddPrompt}
           title={folder ? `在「${folder.name}」中新建 Prompt` : '新建 Prompt（未分组）'}
@@ -906,7 +908,7 @@ function FolderHeader({
             title="重命名目录"
             className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-3.5 w-3.5" />
           </button>
         )}
         {folder && onDelete && (
