@@ -854,12 +854,12 @@ function FolderHeader({
           onDragStart={(e) => onDragStart(e, folder.id)}
           onDragEnd={onDragEnd}
           title="拖动调整目录顺序"
-          className="hidden shrink-0 cursor-grab rounded p-0.5 text-zinc-300 group-hover/folder:block hover:bg-zinc-100 hover:text-zinc-500"
+          className="shrink-0 cursor-grab rounded p-0.5 text-zinc-300 opacity-0 transition group-hover/folder:opacity-100 focus-visible:opacity-100 hover:bg-zinc-100 hover:text-zinc-500"
         >
           <GripVertical className="h-3.5 w-3.5" />
         </span>
       )}
-      {!folder && <span className="shrink-0 pl-0.5 pr-0.5" aria-hidden />}
+      {!folder && <span className="w-[18px] shrink-0" aria-hidden />}
       <button
         onClick={onToggle}
         aria-expanded={!collapsed}
