@@ -36,6 +36,7 @@ registry.ts <──注册─────────────┘
 | `prompt-manager:prompts` | `PromptItem[]`：`{ id, title, content, createdAt, updatedAt, folderId?, order?, pinned?, copyCount?, lastUsedAt? }`（folderId 为空/指向已删目录 = 未分组；order 为拖拽产生的手动顺序） |
 | `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt?, order? }`，仅一层 |
 | `prompt-manager:collapsedGroups` | `string[]`：折叠的分组 key（目录 id / `__ungrouped`）；UI 状态但同样持久化，刷新后保留；删除目录时清理对应 key |
+| `prompt-manager:editorWrap` | `boolean`：编辑器显示模式（自动换行），缺省 true；Prompt 编辑区与模板编辑区共用 |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 
@@ -74,6 +75,7 @@ registry.ts <──注册─────────────┘
 
 - `ui/Select.tsx`：定制下拉（键盘 ↑↓/Enter/Esc、外点关闭、焦点还原、`panel-anim`）
 - `ui/ConfirmDialog.tsx`：Radix AlertDialog 定制确认框（danger/primary 两种确认色）
+- `ui/Checkbox.tsx`：Radix Checkbox 定制勾选框（青绿选中态，配 label 使用）
 - 规则：原生 `select`/`confirm`/`alert` 在 UI 中零容忍
 
 ## 5. 构建与开发环境

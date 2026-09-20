@@ -41,7 +41,7 @@ src/
 ### 必须遵守的约定（违反=返工）
 
 1. **新功能必须走功能注册表**：在 `src/features/<id>/` 自包含实现，`index.ts` 导出 `FeatureModule`（id、名称、图标、主组件），在 `src/features/registry.ts` 注册一行。popup 菜单、工作台侧边栏、设置页自动接入。禁止把功能逻辑写进 entrypoints。
-2. **禁止浏览器原生控件默认外观**：原生 `select`、`window.confirm`、`alert` 一律不用。下拉用 `components/ui/Select.tsx`，确认框用 `components/ui/ConfirmDialog.tsx`（Radix UI 原语 + 定制视觉）。新通用控件放 `components/ui/`。
+2. **禁止浏览器原生控件默认外观**：原生 `select`、`checkbox`、`window.confirm`、`alert` 一律不用。下拉用 `components/ui/Select.tsx`，确认框用 `components/ui/ConfirmDialog.tsx`，勾选框用 `components/ui/Checkbox.tsx`（均由 Radix UI 原语 + 定制视觉实现）。新通用控件放 `components/ui/`。
 3. **WXT 0.19 导入路径**：`import { storage } from 'wxt/storage'`、`import { browser } from 'wxt/browser'`（0.20+ 才是 `wxt/utils/*`，不要升级写法）。`defineBackground`/`browser` 在 entrypoints 里可用自动导入。
 4. **配置陷阱**：`wxt.config.ts` 里 `srcDir: 'src'`、`publicDir: '../public'` 是刻意的（模板布局），勿改；`options_ui` 的 `open_in_tab` 只能通过 `options/index.html` 的 `<meta name="manifest.openInTab">` 配置，WXT 会覆盖 manifest 里的手写配置。
 5. **数据全部走 WXT storage**（见下方键名），UI 文案用中文，新逻辑配 Vitest 单测（纯函数放 `utils.ts` 便于测试，测试文件与源码同目录 `*.test.ts`）。
@@ -53,6 +53,7 @@ src/
 | `prompt-manager:prompts` | `PromptItem[]`：id/title/content/createdAt/updatedAt + folderId?/order?/pinned/copyCount/lastUsedAt |
 | `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?/order?（仅一层，不支持子目录） |
 | `prompt-manager:collapsedGroups` | `string[]`：已折叠的分组 key（目录 id 或 `__ungrouped`），刷新后恢复折叠状态 |
+| `prompt-manager:editorWrap` | `boolean`：编辑器是否自动换行（缺省 true；false 时不换行、横向滚动） |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? |
 | `settings:defaultFeature` | 工作台默认功能 id |
 

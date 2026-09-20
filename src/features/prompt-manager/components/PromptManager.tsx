@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import CopyDialog from './CopyDialog';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import Checkbox from '@/components/ui/Checkbox';
 import { usePromptManager } from '../hooks/usePromptManager';
 import {
   extractVariables,
@@ -67,6 +68,8 @@ export default function PromptManager() {
     folders,
     addFolder,
     collapsedGroups,
+    wrapEnabled,
+    setWrapEnabled,
     toggleGroupCollapsed,
     expandGroup,
     reorderFolders,
@@ -632,6 +635,8 @@ export default function PromptManager() {
             onChange={(patch) => updateTemplate(previewTemplate.id, patch)}
             onCreate={() => handleCreateFromTemplate(previewTemplate.id)}
             onDelete={() => handleDeleteTemplate(previewTemplate.id)}
+            wrapEnabled={wrapEnabled}
+            setWrapEnabled={setWrapEnabled}
           />
         ) : activePrompt ? (
           <>
@@ -661,9 +666,22 @@ export default function PromptManager() {
                 {formatCount(activePrompt.content)}
                 {activePrompt.copyCount ? ` · 复制 ${activePrompt.copyCount} 次` : ''}
               </span>
-              <span className="flex items-center gap-1">
-                <PenLine className="h-3 w-3" />
-                Tab 缩进 · 修改后自动保存
+              <span className="flex items-center gap-3">
+                <label
+                  htmlFor="editor-wrap-prompt"
+                  className="flex cursor-pointer select-none items-center gap-1.5 transition hover:text-zinc-600"
+                >
+                  <Checkbox
+                    id="editor-wrap-prompt"
+                    checked={wrapEnabled}
+                    onCheckedChange={setWrapEnabled}
+                  />
+                  自动换行
+                </label>
+                <span className="flex items-center gap-1">
+                  <PenLine className="h-3 w-3" />
+                  Tab 缩进 · 修改后自动保存
+                </span>
               </span>
             </div>
 
@@ -685,8 +703,10 @@ export default function PromptManager() {
                 }}
                 placeholder="在这里编写 Prompt，可以自由换行…"
                 spellCheck={false}
-                wrap="off"
-                className="min-h-0 flex-1 resize-none whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300"
+                wrap={wrapEnabled ? 'soft' : 'off'}
+                className={`min-h-0 flex-1 resize-none px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300 ${
+                  wrapEnabled ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
+                }`}
               />
             </div>
 
@@ -1138,11 +1158,15 @@ function TemplateEditor({
   onChange,
   onCreate,
   onDelete,
+  wrapEnabled,
+  setWrapEnabled,
 }: {
   template: TemplateItem;
   onChange: (patch: Partial<Omit<TemplateItem, 'id' | 'createdAt'>>) => void;
   onCreate: () => void;
   onDelete: () => void;
+  wrapEnabled: boolean;
+  setWrapEnabled: (enabled: boolean) => void;
 }) {
   const gutterRef = useRef<HTMLDivElement>(null);
   const lineCount = template.content.split('\n').length;
@@ -1166,9 +1190,22 @@ function TemplateEditor({
 
       <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
         <span className="font-mono">{formatCount(template.content)}</span>
-        <span className="flex items-center gap-1">
-          <PenLine className="h-3 w-3" />
-          修改后自动保存
+        <span className="flex items-center gap-3">
+          <label
+            htmlFor="editor-wrap-template"
+            className="flex cursor-pointer select-none items-center gap-1.5 transition hover:text-zinc-600"
+          >
+            <Checkbox
+              id="editor-wrap-template"
+              checked={wrapEnabled}
+              onCheckedChange={setWrapEnabled}
+            />
+            自动换行
+          </label>
+          <span className="flex items-center gap-1">
+            <PenLine className="h-3 w-3" />
+            修改后自动保存
+          </span>
         </span>
       </div>
 
@@ -1184,12 +1221,14 @@ function TemplateEditor({
           value={template.content}
           onChange={(e) => onChange({ content: e.target.value })}
           spellCheck={false}
-          wrap="off"
+          wrap={wrapEnabled ? 'soft' : 'off'}
           onScroll={(e: UIEvent<HTMLTextAreaElement>) => {
             if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
           }}
           placeholder="模板内容，基于它新建时会带入这里的内容"
-          className="min-h-0 flex-1 resize-none whitespace-pre px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300"
+          className={`min-h-0 flex-1 resize-none px-4 py-3 font-mono text-[13px] leading-7 text-zinc-800 outline-none placeholder:text-zinc-300 ${
+            wrapEnabled ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
+          }`}
         />
       </div>
 

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
 import {
   loadCollapsedGroups,
+  loadEditorWrap,
   loadFolders,
   loadPrompts,
   loadTemplates,
   saveCollapsedGroups,
+  saveEditorWrap,
   saveFolders,
   savePrompts,
   saveTemplates,
@@ -35,6 +37,8 @@ export function usePromptManager() {
   const [folders, setFolders] = useState<FolderItem[]>([]);
   /** 折叠的分组 key（目录 id 或未分组哨兵），持久化以在刷新后保留 */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  /** 编辑器是否自动换行（默认开启） */
+  const [wrapEnabled, setWrapEnabledState] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -64,6 +68,9 @@ export function usePromptManager() {
     });
     loadCollapsedGroups().then((ids) => {
       if (!cancelled) setCollapsedGroups(new Set(ids));
+    });
+    loadEditorWrap().then((enabled) => {
+      if (!cancelled) setWrapEnabledState(enabled);
     });
     return () => {
       cancelled = true;
@@ -247,6 +254,12 @@ export function usePromptManager() {
     [folders],
   );
 
+  /** 切换编辑器自动换行（持久化） */
+  const setWrapEnabled = useCallback((enabled: boolean) => {
+    setWrapEnabledState(enabled);
+    void saveEditorWrap(enabled);
+  }, []);
+
   /** 折叠/展开某个分组（持久化） */
   const toggleGroupCollapsed = useCallback(
     (key: string) => {
@@ -314,7 +327,7 @@ export function usePromptManager() {
         sortPrompts(prev.map((p) => (p.folderId === id ? { ...p, folderId: null } : p))),
       );
     },
-    [folders, persist],
+    [collapsedGroups, folders, persist],
   );
 
   /**
@@ -389,6 +402,8 @@ export function usePromptManager() {
     recordCopy,
     addFolder,
     collapsedGroups,
+    wrapEnabled,
+    setWrapEnabled,
     toggleGroupCollapsed,
     expandGroup,
     reorderFolders,
