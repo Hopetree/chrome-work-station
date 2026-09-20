@@ -73,4 +73,17 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 
 ## 版本发布
 
-git tag = 扩展版本 = package.json version（tag 驱动，勿手改版本号）。`npm version patch/minor/major` + `git push --follow-tags` → GitHub Actions 自动构建发布。lockfile 基于国内 npmmirror 生成（.npmrc）。
+git tag = 扩展版本 = package.json version = 构建产物 manifest.version（tag 驱动，勿手改版本号）。
+
+**发布顺序（必须按此执行，否则本地插件版本与 tag 不一致）**：
+
+```bash
+npm version patch|minor|major -m "chore(release): v%s"   # 1. 升版本（package.json + 提交 + 打标签）
+npm run build                                            # 2. 重新构建，刷新 dist 里的 manifest.version
+npm run test && npm run type-check && npm run lint       # 3. 三项检查（tag 会触发 CI 构建）
+git push origin main && git push origin v<版本>           # 4. 推送分支与标签（--follow-tags 不推轻量标签，显式推更稳）
+```
+
+**关键点**：`npm version` 只改 package.json，扩展的 manifest 版本来自构建 —— **必须先 build 再推送**，否则推出去时 `dist/`（以及浏览器里加载的扩展）仍是旧版本号。推送后需在 `chrome://extensions` 点「重新加载」才能看到新版本。
+
+GitHub Actions 由 `v*` 标签触发自动构建发布；lockfile 基于国内 npmmirror 生成（.npmrc），CI 拉取失败时重生成 lockfile。

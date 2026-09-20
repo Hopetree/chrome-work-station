@@ -85,6 +85,10 @@ npm run build && npm run preview
 
 ## 版本发布
 
-1. `git checkout main && git pull`
-2. `npm version patch/minor/major`（或手动打 tag）
-3. `git push --follow-tags` → GitHub Actions 自动构建发布
+版本号由 tag 驱动（tag = package.json = 扩展 manifest），按以下顺序执行：
+
+1. `npm version patch/minor/major -m "chore(release): v%s"` —— 升版本、提交并打标签
+2. `npm run build` —— **重新构建，刷新 dist/ 里的 manifest 版本**（此步不可省，否则本地/发布产物版本滞后）
+3. `npm run test && npm run type-check && npm run lint`
+4. `git push origin main && git push origin v<版本>` —— 标签触发 GitHub Actions 自动构建发布
+5. 在 `chrome://extensions` 点「重新加载」查看新版本
