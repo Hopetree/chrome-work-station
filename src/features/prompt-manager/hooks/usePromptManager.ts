@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
+import type { LastActiveState } from '../storage';
 import {
   loadCollapsedGroups,
   loadEditorWrap,
+  loadLastActive,
   loadListCollapsed,
   loadFolders,
   loadPrompts,
   loadTemplates,
   saveCollapsedGroups,
   saveEditorWrap,
+  saveLastActive,
   saveListCollapsed,
   saveFolders,
   savePrompts,
@@ -47,6 +50,8 @@ export function usePromptManager() {
   const [wrapEnabled, setWrapEnabledState] = useState(true);
   /** 列表栏是否手动收起（默认展开） */
   const [listCollapsed, setListCollapsedState] = useState(false);
+  /** 上次会话状态（重新打开时恢复同一张卡片/视图） */
+  const [lastActive, setLastActiveState] = useState<LastActiveState>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -60,28 +65,28 @@ export function usePromptManager() {
 
   useEffect(() => {
     let cancelled = false;
-    loadPrompts().then((items) => {
+    Promise.all([
+      loadPrompts(),
+      loadTemplates(),
+      loadFolders(),
+      loadCollapsedGroups(),
+      loadEditorWrap(),
+      loadListCollapsed(),
+      loadLastActive(),
+    ]).then(([items, templateItems, folderItems, collapsed, wrap, collapsedList, last]) => {
       if (cancelled) return;
       setPrompts(items);
-      // 默认选中最近编辑的一条，方便回来继续修改
-      const first = sortPrompts(items)[0];
+      setTemplates(templateItems);
+      setFolders(folderItems);
+      setCollapsedGroups(new Set(collapsed));
+      setWrapEnabledState(wrap);
+      setListCollapsedState(collapsedList);
+      setLastActiveState(last);
+      // 恢复上次查看的卡片；不存在（已删除）时回退到最近编辑的一条
+      const restored = last.promptId ? items.find((item) => item.id === last.promptId) : undefined;
+      const first = restored ?? sortPrompts(items)[0];
       if (first) setActiveId(first.id);
       setLoading(false);
-    });
-    loadTemplates().then((items) => {
-      if (!cancelled) setTemplates(items);
-    });
-    loadFolders().then((items) => {
-      if (!cancelled) setFolders(items);
-    });
-    loadCollapsedGroups().then((ids) => {
-      if (!cancelled) setCollapsedGroups(new Set(ids));
-    });
-    loadEditorWrap().then((enabled) => {
-      if (!cancelled) setWrapEnabledState(enabled);
-    });
-    loadListCollapsed().then((collapsed) => {
-      if (!cancelled) setListCollapsedState(collapsed);
     });
     return () => {
       cancelled = true;
@@ -99,6 +104,15 @@ export function usePromptManager() {
     },
     [],
   );
+
+  /** 更新并持久化上次会话状态（视图 / 选中的模板由 UI 传入） */
+  const updateLastActive = useCallback((patch: LastActiveState) => {
+    setLastActiveState((prev) => {
+      const next = { ...prev, ...patch };
+      void saveLastActive(next);
+      return next;
+    });
+  }, []);
 
   const persist = useCallback(async () => {
     const draft = latestDraft.current;
@@ -159,10 +173,11 @@ export function usePromptManager() {
       const next = sortPrompts([item, ...prompts]);
       setPrompts(next);
       setActiveId(item.id);
+      updateLastActive({ promptId: item.id });
       await savePrompts(next);
       setStatus('saved');
     },
-    [persist, prompts],
+    [persist, prompts, updateLastActive],
   );
 
   /** 基于模板创建新 Prompt */
@@ -174,10 +189,11 @@ export function usePromptManager() {
       const next = sortPrompts([item, ...prompts]);
       setPrompts(next);
       setActiveId(item.id);
+      updateLastActive({ promptId: item.id });
       await savePrompts(next);
       setStatus('saved');
     },
-    [persist, prompts],
+    [persist, prompts, updateLastActive],
   );
 
   const removePrompt = useCallback(
@@ -192,11 +208,15 @@ export function usePromptManager() {
     [activeId, prompts],
   );
 
-  const selectPrompt = useCallback((id: string) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    setActiveId(id);
-    setStatus('idle');
-  }, []);
+  const selectPrompt = useCallback(
+    (id: string) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setActiveId(id);
+      setStatus('idle');
+      updateLastActive({ promptId: id });
+    },
+    [updateLastActive],
+  );
 
   const activePrompt = useMemo(
     () => prompts.find((item) => item.id === activeId) ?? null,
@@ -502,6 +522,8 @@ export function usePromptManager() {
     dropTemplate,
     moveTemplate,
     collapsedGroups,
+    lastActive,
+    updateLastActive,
     listCollapsed,
     setListCollapsed,
     wrapEnabled,

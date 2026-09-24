@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactElement } from 'react';
 import {
   BookmarkPlus,
@@ -54,13 +54,13 @@ const INDENT = '    ';
 /** 未分组分组的折叠状态 key（与目录 id 同处一个集合） */
 const UNGROUPED_KEY = '__ungrouped';
 
-/** 侧边栏等窄容器（<560px）：切换为「列表 / 编辑器」单栏模式，避免两栏互相挤压 */
+/** 侧边栏等窄容器（<460px）：切换为「列表 / 编辑器」单栏模式，避免两栏互相挤压 */
 function useCompactLayout() {
   const [compact, setCompact] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches,
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 460px)').matches,
   );
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 560px)');
+    const query = window.matchMedia('(max-width: 460px)');
     const onChange = () => setCompact(query.matches);
     query.addEventListener('change', onChange);
     return () => query.removeEventListener('change', onChange);
@@ -97,6 +97,8 @@ export default function PromptManager() {
     moveTemplate,
     moveFolder,
     collapsedGroups,
+    lastActive,
+    updateLastActive,
     listCollapsed,
     setListCollapsed,
     wrapEnabled,
@@ -111,7 +113,7 @@ export default function PromptManager() {
   const compact = useCompactLayout();
   // 窄容器（侧边栏）默认先展示列表，选中后再进入编辑器
   const [forceList, setForceList] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches,
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 460px)').matches,
   );
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
@@ -430,6 +432,7 @@ export default function PromptManager() {
   const switchView = (next: 'prompts' | 'templates') => {
     setView(next);
     setForceList(true);
+    updateLastActive({ view: next });
     if (next === 'templates' && !previewTemplateId) {
       setPreviewTemplateId(templates[0]?.id ?? null);
     }
@@ -487,6 +490,7 @@ export default function PromptManager() {
       onSelect={(id) => {
         setForceList(false);
         setPreviewTemplateId(id);
+        updateLastActive({ templateId: id });
       }}
       onCreatePrompt={handleCreateFromTemplate}
       onRequestDelete={setDeletingTemplate}
@@ -602,6 +606,19 @@ export default function PromptManager() {
       </div>
     );
   };
+
+  /** 首次加载完成后恢复上次会话：视图、选中的模板，以及窄容器下是否直接进卡片 */
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (loading || restoredRef.current) return;
+    restoredRef.current = true;
+    if (lastActive.view) setView(lastActive.view);
+    if (lastActive.templateId && templates.some((t) => t.id === lastActive.templateId)) {
+      setPreviewTemplateId(lastActive.templateId);
+    }
+    // 侧边栏重新打开时回到上次那张卡片，而不是列表
+    if (lastActive.promptId || lastActive.templateId) setForceList(false);
+  }, [loading, lastActive, templates]);
 
   const cancelEditFolder = () => {
     setEditingFolderId(null);
@@ -771,7 +788,7 @@ export default function PromptManager() {
       {listVisible && (
         <aside
           className={`flex shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 ${
-            compact ? 'w-full border-r-0' : 'w-[336px]'
+            compact ? 'w-full border-r-0' : 'w-[336px] max-[720px]:w-52'
           }`}
         >
           <div className="px-3 pt-3">

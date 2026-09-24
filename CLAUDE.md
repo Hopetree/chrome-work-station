@@ -59,6 +59,7 @@ src/
 | `prompt-manager:collapsedGroups` | `string[]`：已折叠的分组 key（目录 id 或 `__ungrouped`），刷新后恢复折叠状态 |
 | `prompt-manager:editorWrap` | `boolean`：编辑器是否自动换行（缺省 true；false 时不换行、横向滚动） |
 | `prompt-manager:listCollapsed` | `boolean`：宽屏下列表栏是否手动收起（缺省 false）。收起时左侧保留窄边条用于展开；窄容器走单栏切换，不受此项影响 |
+| `prompt-manager:lastActive` | `{ promptId?, templateId?, view? }`：上次会话状态，侧边栏重开时恢复到同一张卡片与视图 |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? + folderId?/order?（与 Prompt 共用目录，同样支持分组与拖动） |
 | `settings:defaultFeature` | 工作台默认功能 id |
 
@@ -68,7 +69,7 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 
 - **功能深链**：`workbench.html?feature=<id>`，workbench/App.tsx 解析并 `history.replaceState` 同步
 - **自动保存**：编辑停止后 1500ms 防抖合并落盘（`usePromptManager` 的 latestDraft）；**persist/patchPrompt 只重排本地状态、绝不用存储值整体替换**（否则会覆盖输入中的内容并把光标顶到末尾）；置顶/计数/移动目录等元数据走 `patchPrompt`（先冲刷草稿再写，防覆盖）
-- **入口形态**：点工具栏图标 → 侧边栏（`sidepanel`，窄容器自动切「列表 ⇄ 编辑器」单栏）；整页工作台仍由 header 的「在完整工作台中打开」进入
+- **入口形态**：点工具栏图标 → 侧边栏（`sidepanel`，容器宽度 < 460px 时切「列表 ⇄ 编辑器」单栏，并自动回到上次查看的卡片）；整页工作台仍由侧边栏 header 的「在完整工作台中打开」进入
 - **目录**：`groupByFolder` 统一给 Prompt/模板分组（两层：顶层 → 子目录），未分组殿后（可折叠）；`folderSubtreeIds` 级联删除（含子目录），其中的条目回到未分组；层级约束由 `computeFolderDropOrder` 保证
 - **手动排序**：拖动产生 `order` —— 卡片（`computeDropOrder`）与目录（`computeFolderDropOrder`）各自独立；卡片排序 = 置顶 → order → 最近修改，新建/菜单移动插入分组顶部（`topOrderIn`）；目录排序 = order → createdAt，新建目录追加末尾（`bottomFolderOrderIn`）；未分组恒在最后且不可拖动
 - **拖拽隔离**：`draggingId`（卡片）与 `draggingFolderId`（目录）互斥，各自的 dragover/drop 处理先判断对方状态，避免交叉触发

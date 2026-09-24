@@ -38,6 +38,7 @@ registry.ts <──注册─────────────┘
 | `prompt-manager:collapsedGroups` | `string[]`：折叠的分组 key（目录 id / `__ungrouped`）；UI 状态但同样持久化，刷新后保留；删除目录时清理对应 key |
 | `prompt-manager:editorWrap` | `boolean`：编辑器显示模式（自动换行），缺省 true；Prompt 编辑区与模板编辑区共用 |
 | `prompt-manager:listCollapsed` | `boolean`：列表栏手动收起（宽屏），缺省 false；收起后左侧常驻 36px 窄边条提供展开入口，避免无选中条目时无法恢复 |
+| `prompt-manager:lastActive` | `{ promptId?, templateId?, view? }`：上次会话状态；侧边栏/工作台重新打开时优先恢复该卡片（已删除则回退最近编辑），并恢复上次所在视图 |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt?, folderId?, order? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 
@@ -66,7 +67,7 @@ registry.ts <──注册─────────────┘
 - 交互：卡片左侧拖拽把手（HTML5 draggable），卡片上/下半区决定插入位置并渲染指示线；分组容器可接收拖放（高亮提示），落空组即追加
 - 目录排序：`computeFolderDropOrder(folders, draggedId, targetParentId, beforeId)` 同构实现；顶层目录行的上/中/下三区分别对应「插前 / 嵌套为子目录 / 插后」，子目录行只支持前后插入；`bottomFolderOrderIn` 让新建目录落到同层末尾；未分组是虚拟分组，不参与排序且恒在最后
 - 层级约束：`canNestUnder`（目标须为顶层）+ `hasChildFolders`（被拖目录不能已有子目录），违反时退化为放到顶层；`folderSubtreeIds` 支撑级联删除
-- 侧边栏：`sidepanel` 入口（`side_panel.default_path`，由 WXT 从入口目录生成），background 设置 `sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`；容器宽度 < 560px 时 PromptManager 切换单栏（`useCompactLayout` + 列表/编辑器互斥渲染 + 返回按钮）
+- 侧边栏：`sidepanel` 入口（`side_panel.default_path`，由 WXT 从入口目录生成），background 设置 `sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`；容器宽度 < 460px 时 PromptManager 切换单栏（`useCompactLayout` + 列表/编辑器互斥渲染 + 返回按钮）；460–720px 区间列表栏收窄为 208px 避免两栏都挤
 - 两类拖拽用独立状态（draggingId / draggingFolderId）并在对方的处理函数中先行返回，互不干扰
 - 新建 Prompt 与菜单「移动到目录」用 `topOrderIn` 插入目标分组顶部
 
