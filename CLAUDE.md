@@ -43,7 +43,11 @@ src/
 1. **新功能必须走功能注册表**：在 `src/features/<id>/` 自包含实现，`index.ts` 导出 `FeatureModule`（id、名称、图标、主组件），在 `src/features/registry.ts` 注册一行。popup 菜单、工作台侧边栏、设置页自动接入。禁止把功能逻辑写进 entrypoints。
 2. **禁止浏览器原生控件默认外观**：原生 `select`、`checkbox`、`window.confirm`、`alert` 一律不用。下拉用 `components/ui/Select.tsx`，确认框用 `components/ui/ConfirmDialog.tsx`，勾选框用 `components/ui/Checkbox.tsx`（均由 Radix UI 原语 + 定制视觉实现）。新通用控件放 `components/ui/`。
 3. **WXT 0.19 导入路径**：`import { storage } from 'wxt/storage'`、`import { browser } from 'wxt/browser'`（0.20+ 才是 `wxt/utils/*`，不要升级写法）。`defineBackground`/`browser` 在 entrypoints 里可用自动导入。
-4. **配置陷阱**：`wxt.config.ts` 里 `srcDir: 'src'`、`publicDir: '../public'` 是刻意的（模板布局），勿改；`options_ui` 的 `open_in_tab` 只能通过 `options/index.html` 的 `<meta name="manifest.openInTab">` 配置，WXT 会覆盖 manifest 里的手写配置。
+4. **配置陷阱**：
+   - `wxt.config.ts` 里 `srcDir: 'src'`、`publicDir: '../public'` 是刻意的（模板布局），勿改
+   - `options_ui` 的 `open_in_tab` 只能通过 `options/index.html` 的 `<meta name="manifest.openInTab">` 配置，WXT 会覆盖 manifest 里的手写配置
+   - **没有 popup 入口时 WXT 不会生成 `action` 字段 → 工具栏没有图标**；需在 manifest 里显式写 `action: { default_title }`（本项目即如此，图标点击由 background 的 `sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` 打开侧边栏）
+   - sidePanel 需要 Chrome 114+
 5. **数据全部走 WXT storage**（见下方键名），UI 文案用中文，新逻辑配 Vitest 单测（纯函数放 `utils.ts` 便于测试，测试文件与源码同目录 `*.test.ts`）。
 
 ## 数据存储键（chrome.storage.local）

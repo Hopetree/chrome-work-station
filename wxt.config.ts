@@ -14,6 +14,10 @@ export default defineConfig({
     name: 'Chrome 工作站',
     description: '多功能浏览器工具合集，集成 Prompt 管理等日常开发效率工具',
     permissions: ['storage', 'sidePanel'],
+    // 无 popup：工具栏图标保留，点击后由 background 的 sidePanel.setPanelBehavior 打开侧边栏
+    action: {
+      default_title: 'Chrome 工作站',
+    },
     host_permissions: [],
     icons: {
       16: 'icons/icon-16.png',
