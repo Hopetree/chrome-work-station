@@ -3,11 +3,13 @@ import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types'
 import {
   loadCollapsedGroups,
   loadEditorWrap,
+  loadListCollapsed,
   loadFolders,
   loadPrompts,
   loadTemplates,
   saveCollapsedGroups,
   saveEditorWrap,
+  saveListCollapsed,
   saveFolders,
   savePrompts,
   saveTemplates,
@@ -43,6 +45,8 @@ export function usePromptManager() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   /** 编辑器是否自动换行（默认开启） */
   const [wrapEnabled, setWrapEnabledState] = useState(true);
+  /** 列表栏是否手动收起（默认展开） */
+  const [listCollapsed, setListCollapsedState] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [loading, setLoading] = useState(true);
@@ -75,6 +79,9 @@ export function usePromptManager() {
     });
     loadEditorWrap().then((enabled) => {
       if (!cancelled) setWrapEnabledState(enabled);
+    });
+    loadListCollapsed().then((collapsed) => {
+      if (!cancelled) setListCollapsedState(collapsed);
     });
     return () => {
       cancelled = true;
@@ -262,6 +269,12 @@ export function usePromptManager() {
     },
     [folders],
   );
+
+  /** 手动收起/展开列表栏（持久化） */
+  const setListCollapsed = useCallback((collapsed: boolean) => {
+    setListCollapsedState(collapsed);
+    void saveListCollapsed(collapsed);
+  }, []);
 
   /** 切换编辑器自动换行（持久化） */
   const setWrapEnabled = useCallback((enabled: boolean) => {
@@ -489,6 +502,8 @@ export function usePromptManager() {
     dropTemplate,
     moveTemplate,
     collapsedGroups,
+    listCollapsed,
+    setListCollapsed,
     wrapEnabled,
     setWrapEnabled,
     toggleGroupCollapsed,

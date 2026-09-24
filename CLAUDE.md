@@ -58,6 +58,7 @@ src/
 | `prompt-manager:folders` | `FolderItem[]`：id/name/createdAt/updatedAt?/order?/parentId?（**最多两层**：子目录不能再有子目录） |
 | `prompt-manager:collapsedGroups` | `string[]`：已折叠的分组 key（目录 id 或 `__ungrouped`），刷新后恢复折叠状态 |
 | `prompt-manager:editorWrap` | `boolean`：编辑器是否自动换行（缺省 true；false 时不换行、横向滚动） |
+| `prompt-manager:listCollapsed` | `boolean`：宽屏下列表栏是否手动收起（缺省 false）。收起时左侧保留窄边条用于展开；窄容器走单栏切换，不受此项影响 |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? + folderId?/order?（与 Prompt 共用目录，同样支持分组与拖动） |
 | `settings:defaultFeature` | 工作台默认功能 id |
 

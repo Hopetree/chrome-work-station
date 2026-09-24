@@ -6,6 +6,7 @@ const TEMPLATES_KEY = 'local:prompt-manager:templates';
 const FOLDERS_KEY = 'local:prompt-manager:folders';
 const COLLAPSED_KEY = 'local:prompt-manager:collapsedGroups';
 const EDITOR_WRAP_KEY = 'local:prompt-manager:editorWrap';
+const LIST_COLLAPSED_KEY = 'local:prompt-manager:listCollapsed';
 
 export async function loadPrompts(): Promise<PromptItem[]> {
   return (await storage.getItem<PromptItem[]>(PROMPTS_KEY)) ?? [];
@@ -52,4 +53,13 @@ export async function loadEditorWrap(): Promise<boolean> {
 
 export async function saveEditorWrap(enabled: boolean): Promise<void> {
   await storage.setItem(EDITOR_WRAP_KEY, enabled);
+}
+
+/** 列表栏是否手动收起（宽屏下生效；缺省展开） */
+export async function loadListCollapsed(): Promise<boolean> {
+  return (await storage.getItem<boolean>(LIST_COLLAPSED_KEY)) ?? false;
+}
+
+export async function saveListCollapsed(collapsed: boolean): Promise<void> {
+  await storage.setItem(LIST_COLLAPSED_KEY, collapsed);
 }

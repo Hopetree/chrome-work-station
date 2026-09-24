@@ -5,6 +5,8 @@ import {
   Check,
   ChevronLeft,
   ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
   Copy,
   FileText,
   FolderInput,
@@ -95,6 +97,8 @@ export default function PromptManager() {
     moveTemplate,
     moveFolder,
     collapsedGroups,
+    listCollapsed,
+    setListCollapsed,
     wrapEnabled,
     setWrapEnabled,
     toggleGroupCollapsed,
@@ -756,8 +760,10 @@ export default function PromptManager() {
     );
   };
 
-  const editorVisible = !compact || (!forceList && (!!activePrompt || !!previewTemplate));
-  const listVisible = !compact || !editorVisible;
+  // 窄容器（侧边栏）：列表与编辑器互斥，由选中状态 + 返回按钮切换
+  // 宽屏：由「收起列表」开关人工控制，编辑器始终可见
+  const editorVisible = compact ? !forceList && (!!activePrompt || !!previewTemplate) : true;
+  const listVisible = compact ? !editorVisible : !listCollapsed;
 
   return (
     <div className="flex h-full min-h-0">
@@ -799,6 +805,16 @@ export default function PromptManager() {
                 <LayoutTemplate className="h-3 w-3" />
                 模板 {templates.length}
               </button>
+              {!compact && (
+                <button
+                  onClick={() => setListCollapsed(true)}
+                  title="收起列表"
+                  aria-label="收起列表"
+                  className="shrink-0 rounded-md px-1.5 text-zinc-500 transition hover:bg-white/70 hover:text-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -909,6 +925,20 @@ export default function PromptManager() {
             </>
           )}
         </aside>
+      )}
+
+      {/* 列表收起时的窄边条：保证任何时候都能重新展开 */}
+      {!compact && listCollapsed && (
+        <div className="flex w-9 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-2">
+          <button
+            onClick={() => setListCollapsed(false)}
+            title="展开列表"
+            aria-label="展开列表"
+            className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition hover:bg-white hover:text-teal-700 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       {/* 编辑区：模板视图下直接编辑模板 */}

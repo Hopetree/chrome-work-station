@@ -37,6 +37,7 @@ registry.ts <──注册─────────────┘
 | `prompt-manager:folders` | `FolderItem[]`：`{ id, name, createdAt, updatedAt?, order?, parentId? }`，最多两层；Prompt 与模板共用同一套目录 |
 | `prompt-manager:collapsedGroups` | `string[]`：折叠的分组 key（目录 id / `__ungrouped`）；UI 状态但同样持久化，刷新后保留；删除目录时清理对应 key |
 | `prompt-manager:editorWrap` | `boolean`：编辑器显示模式（自动换行），缺省 true；Prompt 编辑区与模板编辑区共用 |
+| `prompt-manager:listCollapsed` | `boolean`：列表栏手动收起（宽屏），缺省 false；收起后左侧常驻 36px 窄边条提供展开入口，避免无选中条目时无法恢复 |
 | `prompt-manager:templates` | `TemplateItem[]`：`{ id, name, content, createdAt, updatedAt?, folderId?, order? }` |
 | `settings:defaultFeature` | `string`（feature id） |
 
