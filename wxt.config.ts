@@ -13,7 +13,7 @@ export default defineConfig({
   manifest: {
     name: 'Chrome 工作站',
     description: '多功能浏览器工具合集，集成 Prompt 管理等日常开发效率工具',
-    permissions: ['storage'],
+    permissions: ['storage', 'sidePanel'],
     host_permissions: [],
     icons: {
       16: 'icons/icon-16.png',
@@ -23,6 +23,7 @@ export default defineConfig({
     // 根据实际需求添加权限，按最小权限原则
     // 常用权限示例：
     //   storage — 本地存储
+    //   sidePanel — 侧边栏（点击工具栏图标直接打开）
     //   activeTab — 访问当前标签页
     //   tabs — 访问标签页信息
     //   scripting — 注入脚本

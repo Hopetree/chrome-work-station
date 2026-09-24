@@ -16,12 +16,16 @@ import {
   bottomFolderOrderIn,
   computeDropOrder,
   computeFolderDropOrder,
+  computeTemplateDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
+  folderSubtreeIds,
   sortPrompts,
+  sortTemplates,
   topOrderIn,
+  topTemplateOrderIn,
 } from '../utils';
 
 // 停止输入后延迟落盘；输入过程中不保存，避免打断输入和造成卡顿
@@ -244,8 +248,13 @@ export function usePromptManager() {
 
   /** 新建目录，返回新目录 id */
   const addFolder = useCallback(
-    async (name: string): Promise<string> => {
-      const folder = createFolderItem(name, Date.now(), bottomFolderOrderIn(folders));
+    async (name: string, parentId: string | null = null): Promise<string> => {
+      const folder = createFolderItem(
+        name,
+        Date.now(),
+        bottomFolderOrderIn(folders, parentId),
+        parentId,
+      );
       const next = [...folders, folder];
       setFolders(next);
       await saveFolders(next);
@@ -284,14 +293,74 @@ export function usePromptManager() {
     [collapsedGroups],
   );
 
-  /** 拖拽调整目录顺序：把 draggedId 放到 beforeId 之前（null = 末尾） */
-  const reorderFolders = useCallback(
-    async (draggedId: string, beforeId: string | null) => {
-      const next = computeFolderDropOrder(folders, draggedId, beforeId);
+  /**
+   * 拖拽移动目录：放到 targetParentId 层级、beforeId 之前（null = 该层末尾）。
+   * 层级约束由 computeFolderDropOrder 保证（最多两层）。
+   */
+  const moveFolder = useCallback(
+    async (draggedId: string, targetParentId: string | null, beforeId: string | null) => {
+      const next = computeFolderDropOrder(folders, draggedId, targetParentId, beforeId);
       setFolders(next);
       await saveFolders(next);
     },
     [folders],
+  );
+
+  /** 新建空模板（可指定目录） */
+  const addTemplate = useCallback(async (folderId: string | null = null) => {
+    if (templateTimer.current) clearTimeout(templateTimer.current);
+    const now = Date.now();
+    const template = {
+      id: createFolderItem('x', now).id,
+      name: '未命名模板',
+      content: '',
+      createdAt: now,
+      updatedAt: now,
+      folderId,
+      order: topTemplateOrderIn(templatesRef.current, folderId),
+    };
+    const next = sortTemplates([template, ...templatesRef.current]);
+    templatesRef.current = next;
+    setTemplates(next);
+    await saveTemplates(next);
+    return template.id;
+  }, []);
+
+  /** 拖拽模板：放进目标分组并排在 beforeId 之前（null = 末尾；prepend 时置顶） */
+  const dropTemplate = useCallback(
+    async (
+      draggedId: string,
+      targetFolderId: string | null,
+      beforeId: string | null,
+      prepend = false,
+    ) => {
+      if (templateTimer.current) clearTimeout(templateTimer.current);
+      const siblings = sortTemplates(
+        templatesRef.current.filter(
+          (t) => t.id !== draggedId && (t.folderId ?? null) === targetFolderId,
+        ),
+      );
+      const anchor = prepend ? (siblings[0]?.id ?? null) : beforeId;
+      const next = computeTemplateDropOrder(
+        templatesRef.current,
+        draggedId,
+        targetFolderId,
+        anchor,
+      );
+      const sorted = sortTemplates(next);
+      templatesRef.current = sorted;
+      setTemplates(sorted);
+      await saveTemplates(sorted);
+    },
+    [],
+  );
+
+  /** 菜单移动模板到目录（插入目标分组顶部） */
+  const moveTemplate = useCallback(
+    (id: string, folderId: string | null) => {
+      void dropTemplate(id, folderId, null, true);
+    },
+    [dropTemplate],
   );
 
   /** 重命名目录 */
@@ -306,25 +375,40 @@ export function usePromptManager() {
     [folders],
   );
 
-  /** 删除目录：其中的 Prompt 回到未分组，不随目录一起删除 */
+  /** 删除目录（含子目录）：其中的 Prompt 与模板回到未分组，条目不随目录删除 */
   const removeFolder = useCallback(
     async (id: string) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (latestDraft.current) await persist();
-      const nextFolders = folders.filter((f) => f.id !== id);
+      const removed = new Set(folderSubtreeIds(folders, id));
+      const nextFolders = folders.filter((f) => !removed.has(f.id));
       setFolders(nextFolders);
-      // 一并清掉该目录的折叠记录，避免残留无用状态
-      if (collapsedGroups.has(id)) {
-        const nextCollapsed = new Set(collapsedGroups);
-        nextCollapsed.delete(id);
+
+      // 一并清掉被删目录的折叠记录，避免残留无用状态
+      if ([...removed].some((key) => collapsedGroups.has(key))) {
+        const nextCollapsed = new Set([...collapsedGroups].filter((key) => !removed.has(key)));
         setCollapsedGroups(nextCollapsed);
         void saveCollapsedGroups([...nextCollapsed]);
       }
+
       const current = await loadPrompts();
-      const nextPrompts = current.map((p) => (p.folderId === id ? { ...p, folderId: null } : p));
-      await Promise.all([saveFolders(nextFolders), savePrompts(nextPrompts)]);
+      const nextPrompts = current.map((p) =>
+        p.folderId && removed.has(p.folderId) ? { ...p, folderId: null } : p,
+      );
+      const nextTemplates = templatesRef.current.map((t) =>
+        t.folderId && removed.has(t.folderId) ? { ...t, folderId: null } : t,
+      );
+      templatesRef.current = nextTemplates;
+      setTemplates(nextTemplates);
+      await Promise.all([
+        saveFolders(nextFolders),
+        savePrompts(nextPrompts),
+        saveTemplates(nextTemplates),
+      ]);
       setPrompts((prev) =>
-        sortPrompts(prev.map((p) => (p.folderId === id ? { ...p, folderId: null } : p))),
+        sortPrompts(
+          prev.map((p) => (p.folderId && removed.has(p.folderId) ? { ...p, folderId: null } : p)),
+        ),
       );
     },
     [collapsedGroups, folders, persist],
@@ -401,12 +485,15 @@ export function usePromptManager() {
     togglePin,
     recordCopy,
     addFolder,
+    addTemplate,
+    dropTemplate,
+    moveTemplate,
     collapsedGroups,
     wrapEnabled,
     setWrapEnabled,
     toggleGroupCollapsed,
     expandGroup,
-    reorderFolders,
+    moveFolder,
     renameFolder,
     removeFolder,
     movePrompt,

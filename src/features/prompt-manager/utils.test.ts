@@ -1,20 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
   bottomFolderOrderIn,
+  canNestUnder,
   computeDropOrder,
   computeFolderDropOrder,
+  computeTemplateDropOrder,
   createFolderItem,
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
   extractVariables,
   filterPrompts,
+  filterTemplates,
   fillVariables,
   formatUpdatedAt,
+  folderSubtreeIds,
   groupPromptsByFolder,
+  hasChildFolders,
   sortFolders,
+  sortTemplates,
   sortPrompts,
   topOrderIn,
+  topTemplateOrderIn,
 } from './utils';
 
 describe('createTemplateFromPrompt', () => {
@@ -80,32 +87,122 @@ describe('groupPromptsByFolder', () => {
   const folders = [
     { id: 'f1', name: '工作', createdAt: 1 },
     { id: 'f2', name: '生活', createdAt: 2 },
+    { id: 'sub1', name: '工作子目录', createdAt: 3, parentId: 'f1' },
   ];
 
-  it('groups prompts by folder with ungrouped last', () => {
+  it('groups prompts by folder with subfolders nested', () => {
     const prompts = [
       { id: 'p1', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'f1' },
       { id: 'p2', title: '', content: '', createdAt: 1, updatedAt: 1 },
-      { id: 'p3', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'f2' },
+      { id: 'p3', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'sub1' },
     ];
-    const sections = groupPromptsByFolder(prompts, folders);
-    expect(sections.map((s) => s.folder?.id ?? null)).toEqual(['f1', 'f2', null]);
-    expect(sections[0].prompts.map((p) => p.id)).toEqual(['p1']);
-    expect(sections[2].prompts.map((p) => p.id)).toEqual(['p2']);
+    const { sections, ungrouped } = groupPromptsByFolder(prompts, folders);
+    expect(sections.map((s) => s.folder.id)).toEqual(['f1', 'f2']);
+    expect(sections[0].items.map((p) => p.id)).toEqual(['p1']);
+    expect(sections[0].children.map((s) => s.folder.id)).toEqual(['sub1']);
+    expect(sections[0].children[0].items.map((p) => p.id)).toEqual(['p3']);
+    expect(ungrouped.map((p) => p.id)).toEqual(['p2']);
   });
 
   it('treats prompts of deleted folders as ungrouped', () => {
     const prompts = [
       { id: 'p1', title: '', content: '', createdAt: 1, updatedAt: 1, folderId: 'gone' },
     ];
-    const sections = groupPromptsByFolder(prompts, folders);
-    expect(sections[2].prompts.map((p) => p.id)).toEqual(['p1']);
+    expect(groupPromptsByFolder(prompts, folders).ungrouped.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('promotes folders whose parent is missing to top level', () => {
+    const orphan = [{ id: 'x', name: 'X', createdAt: 1, parentId: 'missing' }];
+    const { sections } = groupPromptsByFolder([], orphan);
+    expect(sections.map((s) => s.folder.id)).toEqual(['x']);
   });
 
   it('keeps empty folders visible', () => {
-    const sections = groupPromptsByFolder([], folders);
-    expect(sections).toHaveLength(3);
-    expect(sections[1].prompts).toEqual([]);
+    const { sections } = groupPromptsByFolder([], folders);
+    expect(sections).toHaveLength(2);
+    expect(sections[0].children).toHaveLength(1);
+  });
+});
+
+describe('子目录约束', () => {
+  const folders = [
+    { id: 'top', name: '顶层', createdAt: 1 },
+    { id: 'sub', name: '子目录', createdAt: 2, parentId: 'top' },
+  ];
+
+  it('folderSubtreeIds returns the whole subtree', () => {
+    expect(folderSubtreeIds(folders, 'top').sort()).toEqual(['sub', 'top']);
+    expect(folderSubtreeIds(folders, 'sub')).toEqual(['sub']);
+  });
+
+  it('only top-level folders can host subfolders', () => {
+    expect(canNestUnder(folders, 'top')).toBe(true);
+    expect(canNestUnder(folders, 'sub')).toBe(false);
+  });
+
+  it('detects folders that already have children', () => {
+    expect(hasChildFolders(folders, 'top')).toBe(true);
+    expect(hasChildFolders(folders, 'sub')).toBe(false);
+  });
+
+  it('nests a top-level folder under another top-level folder', () => {
+    const next = computeFolderDropOrder(
+      [
+        { id: 'a', name: 'A', createdAt: 1 },
+        { id: 'b', name: 'B', createdAt: 2 },
+      ],
+      'b',
+      'a',
+      null,
+    );
+    expect(next.find((f) => f.id === 'b')?.parentId).toBe('a');
+  });
+
+  it('refuses to nest deeper than two levels', () => {
+    const next = computeFolderDropOrder(folders, 'top', 'sub', null);
+    expect(next.find((f) => f.id === 'top')?.parentId).toBe(null);
+  });
+
+  it('refuses to nest a folder that has its own children', () => {
+    const next = computeFolderDropOrder(folders, 'top', null, null);
+    expect(next.find((f) => f.id === 'top')?.parentId).toBe(null);
+    expect(hasChildFolders(next, 'top')).toBe(true);
+  });
+});
+
+describe('模板排序与拖拽', () => {
+  const base = { name: 't', content: 'c', createdAt: 1 };
+  it('sorts templates by order then recency', () => {
+    const list = [
+      { ...base, id: 'a', updatedAt: 5, order: 2 },
+      { ...base, id: 'b', updatedAt: 1, order: 0 },
+      { ...base, id: 'c', updatedAt: 9 },
+    ];
+    expect(sortTemplates(list).map((t) => t.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('moves a template into a folder and reindexes order', () => {
+    const templates = [
+      { ...base, id: 'a', updatedAt: 3, folderId: 'f1' },
+      { ...base, id: 'b', updatedAt: 2, folderId: null },
+      { ...base, id: 'c', updatedAt: 1, folderId: 'f1' },
+    ];
+    // 把未分组的 b 插到 f1 的 c 之前 → f1 变为 a, b, c，order 依次 0/1/2
+    const next = computeTemplateDropOrder(templates, 'b', 'f1', 'c');
+    const f1 = next
+      .filter((t) => t.folderId === 'f1')
+      .sort((x, y) => (x.order ?? 0) - (y.order ?? 0))
+      .map((t) => t.id);
+    expect(f1).toEqual(['a', 'b', 'c']);
+    expect(next.find((t) => t.id === 'b')?.folderId).toBe('f1');
+    expect(next.find((t) => t.id === 'a')?.order).toBe(0);
+    expect(next.find((t) => t.id === 'c')?.order).toBe(2);
+  });
+
+  it('topTemplateOrderIn puts new templates above existing ones', () => {
+    const templates = [{ ...base, id: 'a', updatedAt: 1, folderId: 'f1', order: 4 }];
+    expect(topTemplateOrderIn(templates, 'f1')).toBe(3);
+    expect(topTemplateOrderIn([], null)).toBe(0);
   });
 });
 
@@ -286,14 +383,31 @@ describe('目录手动顺序', () => {
   });
 
   it('reorders folders before a target folder', () => {
-    const next = computeFolderDropOrder(folders, 'c', 'a');
+    const next = computeFolderDropOrder(folders, 'c', null, 'a');
     const sorted = [...next].sort((x, y) => (x.order ?? 0) - (y.order ?? 0)).map((f) => f.id);
     expect(sorted).toEqual(['c', 'a', 'b']);
   });
 
   it('appends when beforeId is null', () => {
-    const next = computeFolderDropOrder(folders, 'a', null);
+    const next = computeFolderDropOrder(folders, 'a', null, null);
     const sorted = [...next].sort((x, y) => (x.order ?? 0) - (y.order ?? 0)).map((f) => f.id);
     expect(sorted).toEqual(['b', 'c', 'a']);
+  });
+});
+
+describe('filterTemplates', () => {
+  const templates = [
+    { id: 't1', name: '周报模板', content: '本周进展', createdAt: 1 },
+    { id: 't2', name: 'translate', content: '英文翻译', createdAt: 2 },
+  ];
+
+  it('matches name and content case-insensitively', () => {
+    expect(filterTemplates(templates, '周报').map((t) => t.id)).toEqual(['t1']);
+    expect(filterTemplates(templates, '英文').map((t) => t.id)).toEqual(['t2']);
+    expect(filterTemplates(templates, 'TRANSLATE').map((t) => t.id)).toEqual(['t2']);
+  });
+
+  it('returns all for blank query', () => {
+    expect(filterTemplates(templates, '  ')).toHaveLength(2);
   });
 });

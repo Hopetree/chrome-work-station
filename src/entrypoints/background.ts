@@ -2,24 +2,16 @@
  * Background Script
  *
  * 扩展的后台脚本，运行在独立的 Service Worker 上下文中。
- * 用于处理扩展生命周期、事件监听、跨页面通信等。
- *
- * 使用示例：
- *
- * // 监听扩展安装
- * browser.runtime.onInstalled.addListener((details) => {
- *   if (details.reason === 'install') {
- *     console.log('扩展已安装');
- *   }
- * });
- *
- * // 监听来自 popup/content script 的消息
- * browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
- *   console.log('收到消息:', message);
- *   sendResponse({ ok: true });
- * });
  */
 
+interface SidePanelApi {
+  setPanelBehavior(options: { openPanelOnActionClick: boolean }): Promise<void>;
+}
+
 export default defineBackground(() => {
-  console.log('Background script started', { id: browser.runtime.id });
+  // 点击工具栏图标直接打开侧边栏（不再使用 popup），方便只做轻量编辑时不全屏
+  const sidePanel = (chrome as unknown as { sidePanel?: SidePanelApi }).sidePanel;
+  sidePanel
+    ?.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error: unknown) => console.error('[chrome-work-station] 侧边栏设置失败', error));
 });

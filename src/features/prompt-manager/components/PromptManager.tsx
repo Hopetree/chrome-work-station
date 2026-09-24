@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { KeyboardEvent, ReactElement } from 'react';
 import {
   BookmarkPlus,
   Check,
+  ChevronLeft,
   ChevronDown,
   Copy,
   FileText,
@@ -26,11 +27,18 @@ import { usePromptManager } from '../hooks/usePromptManager';
 import {
   extractVariables,
   filterPrompts,
+  filterTemplates,
   formatCount,
   formatUpdatedAt,
   groupPromptsByFolder,
+  groupTemplatesByFolder,
+  hasChildFolders,
+  sortFolders,
+  sortPrompts,
+  sortTemplates,
 } from '../utils';
 import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
+import type { FolderSection } from '../utils';
 
 const STATUS_LABEL: Record<SaveStatus, string> = {
   idle: '',
@@ -43,6 +51,20 @@ const INDENT = '    ';
 
 /** 未分组分组的折叠状态 key（与目录 id 同处一个集合） */
 const UNGROUPED_KEY = '__ungrouped';
+
+/** 侧边栏等窄容器（<560px）：切换为「列表 / 编辑器」单栏模式，避免两栏互相挤压 */
+function useCompactLayout() {
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 560px)');
+    const onChange = () => setCompact(query.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+  return compact;
+}
 
 /** 在编辑器里恢复光标/选区（React 受控更新后执行） */
 function restoreSelection(el: HTMLTextAreaElement, start: number, end: number) {
@@ -68,17 +90,25 @@ export default function PromptManager() {
     recordCopy,
     folders,
     addFolder,
+    addTemplate,
+    dropTemplate,
+    moveTemplate,
+    moveFolder,
     collapsedGroups,
     wrapEnabled,
     setWrapEnabled,
     toggleGroupCollapsed,
     expandGroup,
-    reorderFolders,
     renameFolder,
     removeFolder,
     movePrompt,
     dropPrompt,
   } = usePromptManager();
+  const compact = useCompactLayout();
+  // 窄容器（侧边栏）默认先展示列表，选中后再进入编辑器
+  const [forceList, setForceList] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches,
+  );
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<'prompts' | 'templates'>('prompts');
@@ -90,6 +120,8 @@ export default function PromptManager() {
   const [deletingTemplate, setDeletingTemplate] = useState<TemplateItem | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<FolderItem | null>(null);
   const [addingFolder, setAddingFolder] = useState(false);
+  /** 正在哪个目录下新建子目录（null = 顶层） */
+  const [addingFolderParent, setAddingFolderParent] = useState<string | null>(null);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
@@ -101,18 +133,25 @@ export default function PromptManager() {
   const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
   const [folderOrderHint, setFolderOrderHint] = useState<{
     id: string;
+    position: 'before' | 'after' | 'inside';
+  } | null>(null);
+  const [templateMoveMenuFor, setTemplateMoveMenuFor] = useState<string | null>(null);
+  const [draggingTemplateId, setDraggingTemplateId] = useState<string | null>(null);
+  const [templateDropHint, setTemplateDropHint] = useState<{
+    id: string;
     position: 'before' | 'after';
   } | null>(null);
+  const [templateDropKey, setTemplateDropKey] = useState<string | null>(null);
 
   const visible = useMemo(() => filterPrompts(prompts, query), [prompts, query]);
   const previewTemplate =
     view === 'templates' ? (templates.find((t) => t.id === previewTemplateId) ?? null) : null;
-  const sections = useMemo(() => groupPromptsByFolder(prompts, folders), [prompts, folders]);
+  const groupedPrompts = useMemo(() => groupPromptsByFolder(prompts, folders), [prompts, folders]);
   const folderNameById = useMemo(() => new Map(folders.map((f) => [f.id, f.name])), [folders]);
-  const sortedTemplates = useMemo(
-    () =>
-      [...templates].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)),
-    [templates],
+  const sortedTemplates = useMemo(() => sortTemplates(templates), [templates]);
+  const groupedTemplates = useMemo(
+    () => groupTemplatesByFolder(filterTemplates(sortedTemplates, query), folders),
+    [sortedTemplates, folders, query],
   );
 
   /** 复制入口：有变量先弹填空面板，否则直接复制 */
@@ -143,16 +182,26 @@ export default function PromptManager() {
     requestCopy(activePrompt.id, activePrompt.content);
   };
 
-  const startAddFolder = () => {
+  /** 在指定父目录下新建子目录（null = 顶层） */
+  const startAddFolder = (parentId: string | null = null) => {
     setFolderNameDraft('');
+    setAddingFolderParent(parentId);
     setAddingFolder(true);
   };
 
   const submitNewFolder = async () => {
     const name = folderNameDraft.trim();
+    const parentId = addingFolderParent;
     setAddingFolder(false);
     setFolderNameDraft('');
-    if (name) await addFolder(name);
+    setAddingFolderParent(null);
+    if (name) await addFolder(name, parentId);
+  };
+
+  const cancelAddFolder = () => {
+    setAddingFolder(false);
+    setFolderNameDraft('');
+    setAddingFolderParent(null);
   };
 
   const startRenameFolder = (folder: FolderItem) => {
@@ -164,6 +213,13 @@ export default function PromptManager() {
     if (editingFolderId) await renameFolder(editingFolderId, folderNameDraft);
     setEditingFolderId(null);
     setFolderNameDraft('');
+  };
+
+  /** 在指定目录中新建模板，并展开该分组 */
+  const createTemplateIn = async (folderId: string | null) => {
+    expandGroup(folderId ?? UNGROUPED_KEY);
+    const id = await addTemplate(folderId);
+    setPreviewTemplateId(id);
   };
 
   /** 在指定目录中新建 Prompt，并展开该目录 */
@@ -185,11 +241,14 @@ export default function PromptManager() {
     setFolderDropKey(null);
     setDraggingFolderId(null);
     setFolderOrderHint(null);
+    setDraggingTemplateId(null);
+    setTemplateDropHint(null);
+    setTemplateDropKey(null);
   };
 
   /** 落到某张卡片上：按鼠标在卡片上半/下半决定插到前面还是后面 */
   const handleCardDragOver = (e: React.DragEvent, item: PromptItem) => {
-    if (draggingFolderId || !draggingId || draggingId === item.id) return;
+    if (draggingFolderId || draggingTemplateId || !draggingId || draggingId === item.id) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -208,9 +267,7 @@ export default function PromptManager() {
     if (!dragged || dragged === item.id) return;
     const targetFolderId = item.folderId ?? null;
     // 锚点 = 插入位置后面那张卡片；落点在某卡片下半部时锚点为它的下一张（没有则追加到末尾）
-    const displayed = sections
-      .flatMap((section) => section.prompts)
-      .filter((p) => (p.folderId ?? null) === targetFolderId);
+    const displayed = sortPrompts(prompts.filter((p) => (p.folderId ?? null) === targetFolderId));
     const index = displayed.findIndex((p) => p.id === item.id);
     const anchor =
       hint?.id === item.id && hint.position === 'after'
@@ -220,41 +277,64 @@ export default function PromptManager() {
   };
 
   const handleFolderDragStart = (e: React.DragEvent, id: string) => {
+    if (draggingId || draggingTemplateId) return;
     setDraggingFolderId(id);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', id);
   };
 
-  const handleFolderDragOver = (e: React.DragEvent, folder: FolderItem) => {
+  /**
+   * 目录拖拽落点（按行的上/中/下区域）：
+   * 顶层目录：上 25% 插到前面、下 25% 插到后面、中间 50% 变成它的子目录（最多两层）
+   * 子目录：上半插前、下半插后（同层）
+   */
+  const handleFolderDragOver = (e: React.DragEvent, folder: FolderItem, depth: 1 | 2) => {
     if (!draggingFolderId || draggingFolderId === folder.id) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    setFolderOrderHint({
-      id: folder.id,
-      position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
-    });
+    const ratio = (e.clientY - rect.top) / rect.height;
+    const position: 'before' | 'after' | 'inside' =
+      depth === 1
+        ? ratio < 0.25
+          ? 'before'
+          : ratio > 0.75
+            ? 'after'
+            : 'inside'
+        : ratio < 0.5
+          ? 'before'
+          : 'after';
+    setFolderOrderHint({ id: folder.id, position });
   };
 
-  const handleFolderDrop = async (e: React.DragEvent, folder: FolderItem) => {
+  const handleFolderDrop = async (e: React.DragEvent, folder: FolderItem, depth: 1 | 2) => {
     e.preventDefault();
     e.stopPropagation();
     const dragged = draggingFolderId;
     const hint = folderOrderHint;
     clearDragState();
     if (!dragged || dragged === folder.id) return;
-    const displayed = sections.filter((s) => s.folder).map((s) => s.folder!.id);
-    const index = displayed.indexOf(folder.id);
+
+    if (depth === 1 && hint?.id === folder.id && hint.position === 'inside') {
+      await moveFolder(dragged, folder.id, null);
+      return;
+    }
+
+    const parentId = folder.parentId ?? null;
+    const levelIds = sortFolders(folders.filter((f) => (f.parentId ?? null) === parentId)).map(
+      (f) => f.id,
+    );
+    const index = levelIds.indexOf(folder.id);
     const anchor =
       hint?.id === folder.id && hint.position === 'after'
-        ? (displayed[index + 1] ?? null)
+        ? (levelIds[index + 1] ?? null)
         : folder.id;
-    await reorderFolders(dragged, anchor);
+    await moveFolder(dragged, parentId, anchor);
   };
 
   /** 落到分组的空白区域：追加到该分组末尾 */
   const handleSectionDragOver = (e: React.DragEvent, key: string) => {
-    if (draggingFolderId || !draggingId) return;
+    if (draggingFolderId || draggingTemplateId || !draggingId) return;
     e.preventDefault();
     setDropHint(null);
     setFolderDropKey(key);
@@ -266,6 +346,59 @@ export default function PromptManager() {
     clearDragState();
     if (!dragged) return;
     await dropPrompt(dragged, folderId, null);
+  };
+
+  const handleTemplateDragStart = (e: React.DragEvent, id: string) => {
+    if (draggingId || draggingFolderId) return;
+    setDraggingTemplateId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleTemplateDragOver = (e: React.DragEvent, item: TemplateItem) => {
+    if (!draggingTemplateId || draggingTemplateId === item.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTemplateDropKey(null);
+    setTemplateDropHint({
+      id: item.id,
+      position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+    });
+  };
+
+  const handleTemplateDrop = async (e: React.DragEvent, item: TemplateItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dragged = draggingTemplateId;
+    const hint = templateDropHint;
+    clearDragState();
+    if (!dragged || dragged === item.id) return;
+    const targetFolderId = item.folderId ?? null;
+    const displayed = sortTemplates(
+      templates.filter((t) => (t.folderId ?? null) === targetFolderId),
+    );
+    const index = displayed.findIndex((t) => t.id === item.id);
+    const anchor =
+      hint?.id === item.id && hint.position === 'after'
+        ? (displayed[index + 1]?.id ?? null)
+        : item.id;
+    await dropTemplate(dragged, targetFolderId, anchor);
+  };
+
+  const handleTemplateSectionDragOver = (e: React.DragEvent, key: string) => {
+    if (!draggingTemplateId) return;
+    e.preventDefault();
+    setTemplateDropHint(null);
+    setTemplateDropKey(key);
+  };
+
+  const handleTemplateSectionDrop = async (e: React.DragEvent, folderId: string | null) => {
+    e.preventDefault();
+    const dragged = draggingTemplateId;
+    clearDragState();
+    if (!dragged) return;
+    await dropTemplate(dragged, folderId, null);
   };
 
   const handleSaveAsTemplate = async () => {
@@ -292,6 +425,7 @@ export default function PromptManager() {
   /** 切到模板视图时默认选中第一个模板，方便浏览 */
   const switchView = (next: 'prompts' | 'templates') => {
     setView(next);
+    setForceList(true);
     if (next === 'templates' && !previewTemplateId) {
       setPreviewTemplateId(templates[0]?.id ?? null);
     }
@@ -337,398 +471,560 @@ export default function PromptManager() {
     }
   };
 
+  const renderTemplateCard = (item: TemplateItem, folderLabel?: string | null) => (
+    <TemplateCardRow
+      key={item.id}
+      item={item}
+      active={item.id === previewTemplateId}
+      folders={folders}
+      folderLabel={folderLabel}
+      moveMenuOpen={templateMoveMenuFor === item.id}
+      onToggleMoveMenu={setTemplateMoveMenuFor}
+      onSelect={(id) => {
+        setForceList(false);
+        setPreviewTemplateId(id);
+      }}
+      onCreatePrompt={handleCreateFromTemplate}
+      onRequestDelete={setDeletingTemplate}
+      onMove={moveTemplate}
+      dragging={draggingTemplateId === item.id}
+      dropHint={templateDropHint?.id === item.id ? templateDropHint.position : null}
+      onDragStart={handleTemplateDragStart}
+      onDragOver={handleTemplateDragOver}
+      onDrop={handleTemplateDrop}
+      onDragEnd={clearDragState}
+    />
+  );
+
+  const renderTemplateSection = (
+    section: FolderSection<TemplateItem>,
+    depth: 1 | 2,
+  ): ReactElement => {
+    const key = section.folder.id;
+    const collapsed = collapsedGroups.has(key);
+    return (
+      <div
+        key={key}
+        onDragOver={(e) => handleTemplateSectionDragOver(e, key)}
+        onDrop={(e) => void handleTemplateSectionDrop(e, section.folder.id)}
+        className={`rounded-md transition ${
+          templateDropKey === key ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300' : ''
+        } ${depth === 2 ? 'ml-3' : ''}`}
+      >
+        <FolderHeader
+          folder={section.folder}
+          depth={depth}
+          count={countInSection(section)}
+          collapsed={collapsed}
+          editing={editingFolderId === key}
+          draftName={folderNameDraft}
+          onDraftName={setFolderNameDraft}
+          onToggle={() => toggleGroupCollapsed(key)}
+          onAddPrompt={() => void createTemplateIn(section.folder.id)}
+          onAddSubfolder={depth === 1 ? () => startAddFolder(key) : undefined}
+          onStartRename={() => startRenameFolder(section.folder)}
+          onDelete={() => setDeletingFolder(section.folder)}
+          onSubmitName={() => void submitRenameFolder()}
+          onCancelEdit={cancelEditFolder}
+          dragging={draggingFolderId === key}
+          dropHint={folderOrderHint?.id === key ? folderOrderHint.position : null}
+          onDragStart={handleFolderDragStart}
+          onDragOver={(e, folder) => handleFolderDragOver(e, folder, depth)}
+          onDrop={(e, folder) => handleFolderDrop(e, folder, depth)}
+          onDragEnd={clearDragState}
+        />
+        {!collapsed && (
+          <>
+            {addingFolder && addingFolderParent === key && renderNewFolderInput(section.folder.id)}
+            {section.items.length > 0 ? (
+              <ul className="space-y-1">{section.items.map((item) => renderTemplateCard(item))}</ul>
+            ) : section.children.length === 0 ? (
+              <p className="px-2 py-1 text-[11px] text-zinc-400">
+                这个目录还是空的，点右上角 + 创建
+              </p>
+            ) : null}
+            {section.children.length > 0 && (
+              <div className="mt-1 space-y-1.5">
+                {section.children.map((child) => renderTemplateSection(child, 2))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderUngroupedTemplates = (items: TemplateItem[]): ReactElement => {
+    const collapsed = collapsedGroups.has(UNGROUPED_KEY);
+    const showHeader = folders.length > 0;
+    return (
+      <div
+        key={UNGROUPED_KEY}
+        onDragOver={(e) => handleTemplateSectionDragOver(e, UNGROUPED_KEY)}
+        onDrop={(e) => void handleTemplateSectionDrop(e, null)}
+        className={`rounded-md transition ${
+          templateDropKey === UNGROUPED_KEY ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300' : ''
+        }`}
+      >
+        {showHeader && (
+          <FolderHeader
+            folder={null}
+            depth={1}
+            count={items.length}
+            collapsed={collapsed}
+            editing={false}
+            draftName=""
+            onDraftName={() => {}}
+            onToggle={() => toggleGroupCollapsed(UNGROUPED_KEY)}
+            onAddPrompt={() => void createTemplateIn(null)}
+            onSubmitName={() => {}}
+            onCancelEdit={() => {}}
+            dragging={false}
+            dropHint={null}
+            onDragStart={() => {}}
+            onDragOver={() => {}}
+            onDrop={() => {}}
+            onDragEnd={() => {}}
+          />
+        )}
+        {!collapsed &&
+          (items.length === 0 ? (
+            <p className="px-2 py-1 text-[11px] text-zinc-400">
+              {showHeader ? '没有未分组的模板' : '还没有模板'}
+            </p>
+          ) : (
+            <ul className="space-y-1">{items.map((item) => renderTemplateCard(item))}</ul>
+          ))}
+      </div>
+    );
+  };
+
+  const cancelEditFolder = () => {
+    setEditingFolderId(null);
+    setFolderNameDraft('');
+  };
+
+  /** 目录分组的条目数（含子目录里的条目） */
+  const countInSection = <T,>(section: FolderSection<T>): number =>
+    section.items.length + section.children.reduce((sum, child) => sum + countInSection(child), 0);
+
+  const renderNewFolderInput = (parentId: string | null) => (
+    <div
+      className={`mb-1.5 flex items-center gap-1.5 rounded-md border border-teal-500 bg-white px-2 py-1 ${
+        parentId ? 'ml-3' : ''
+      }`}
+    >
+      <FolderPlus className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+      <input
+        autoFocus
+        value={folderNameDraft}
+        onChange={(e) => setFolderNameDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void submitNewFolder();
+          if (e.key === 'Escape') cancelAddFolder();
+        }}
+        onBlur={() => void submitNewFolder()}
+        placeholder={parentId ? '子目录名称，回车创建' : '目录名称，回车创建'}
+        className="min-w-0 flex-1 bg-transparent text-[12px] text-zinc-800 outline-none placeholder:text-zinc-300"
+      />
+    </div>
+  );
+
+  const renderPromptCard = (item: PromptItem, folderLabel?: string | null) => (
+    <PromptCardRow
+      key={item.id}
+      item={item}
+      active={item.id === activePrompt?.id}
+      folders={folders}
+      folderLabel={folderLabel}
+      moveMenuOpen={moveMenuFor === item.id}
+      onToggleMoveMenu={setMoveMenuFor}
+      onSelect={(id) => {
+        setForceList(false);
+        selectPrompt(id);
+      }}
+      onTogglePin={togglePin}
+      onRequestCopy={requestCopy}
+      onRequestDelete={setDeletingPrompt}
+      onMove={movePrompt}
+      dragging={draggingId === item.id}
+      dropHint={dropHint?.id === item.id ? dropHint.position : null}
+      onDragStart={handleCardDragStart}
+      onDragOver={handleCardDragOver}
+      onDrop={handleCardDrop}
+      onDragEnd={clearDragState}
+    />
+  );
+
+  const renderPromptSection = (section: FolderSection<PromptItem>, depth: 1 | 2): ReactElement => {
+    const key = section.folder.id;
+    const collapsed = collapsedGroups.has(key);
+    return (
+      <div
+        key={key}
+        onDragOver={(e) => handleSectionDragOver(e, key)}
+        onDrop={(e) => void handleSectionDrop(e, section.folder.id)}
+        className={`rounded-md transition ${
+          folderDropKey === key ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300' : ''
+        } ${depth === 2 ? 'ml-3' : ''}`}
+      >
+        <FolderHeader
+          folder={section.folder}
+          depth={depth}
+          count={countInSection(section)}
+          collapsed={collapsed}
+          editing={editingFolderId === key}
+          draftName={folderNameDraft}
+          onDraftName={setFolderNameDraft}
+          onToggle={() => toggleGroupCollapsed(key)}
+          onAddPrompt={() => void createPromptIn(key)}
+          onAddSubfolder={depth === 1 ? () => startAddFolder(key) : undefined}
+          onStartRename={() => startRenameFolder(section.folder)}
+          onDelete={() => setDeletingFolder(section.folder)}
+          onSubmitName={() => void submitRenameFolder()}
+          onCancelEdit={cancelEditFolder}
+          dragging={draggingFolderId === key}
+          dropHint={folderOrderHint?.id === key ? folderOrderHint.position : null}
+          onDragStart={handleFolderDragStart}
+          onDragOver={(e, folder) => handleFolderDragOver(e, folder, depth)}
+          onDrop={(e, folder) => handleFolderDrop(e, folder, depth)}
+          onDragEnd={clearDragState}
+        />
+        {!collapsed && (
+          <>
+            {addingFolder && addingFolderParent === key && renderNewFolderInput(section.folder.id)}
+            {section.items.length > 0 ? (
+              <ul className="space-y-1">{section.items.map((item) => renderPromptCard(item))}</ul>
+            ) : section.children.length === 0 ? (
+              <p className="px-2 py-1 text-[11px] text-zinc-400">
+                这个目录还是空的，点右上角 + 创建
+              </p>
+            ) : null}
+            {section.children.length > 0 && (
+              <div className="mt-1 space-y-1.5">
+                {section.children.map((child) => renderPromptSection(child, 2))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderUngroupedPrompts = (items: PromptItem[]): ReactElement => {
+    const collapsed = collapsedGroups.has(UNGROUPED_KEY);
+    const showHeader = folders.length > 0;
+    return (
+      <div
+        key={UNGROUPED_KEY}
+        onDragOver={(e) => handleSectionDragOver(e, UNGROUPED_KEY)}
+        onDrop={(e) => void handleSectionDrop(e, null)}
+        className={`rounded-md transition ${
+          folderDropKey === UNGROUPED_KEY ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300' : ''
+        }`}
+      >
+        {showHeader && (
+          <FolderHeader
+            folder={null}
+            depth={1}
+            count={items.length}
+            collapsed={collapsed}
+            editing={false}
+            draftName=""
+            onDraftName={() => {}}
+            onToggle={() => toggleGroupCollapsed(UNGROUPED_KEY)}
+            onAddPrompt={() => void createPromptIn(null)}
+            onSubmitName={() => {}}
+            onCancelEdit={() => {}}
+            dragging={false}
+            dropHint={null}
+            onDragStart={() => {}}
+            onDragOver={() => {}}
+            onDrop={() => {}}
+            onDragEnd={() => {}}
+          />
+        )}
+        {!collapsed &&
+          (items.length === 0 ? (
+            <p className="px-2 py-1 text-[11px] text-zinc-400">
+              {showHeader ? '没有未分组的 Prompt' : '还没有保存的 Prompt'}
+            </p>
+          ) : (
+            <ul className="space-y-1">{items.map((item) => renderPromptCard(item))}</ul>
+          ))}
+      </div>
+    );
+  };
+
+  const editorVisible = !compact || (!forceList && (!!activePrompt || !!previewTemplate));
+  const listVisible = !compact || !editorVisible;
+
   return (
     <div className="flex h-full min-h-0">
-      {/* 列表栏：Prompt 与模板分列表展示 */}
-      {/* 列表栏宽度：240px × 1.4 = 336px */}
-      <aside className="flex w-[336px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
-        <div className="px-3 pt-3">
-          <div
-            className="flex rounded-lg bg-zinc-200/70 p-0.5"
-            role="tablist"
-            aria-label="列表切换"
-          >
-            <button
-              role="tab"
-              aria-selected={view === 'prompts'}
-              onClick={() => switchView('prompts')}
-              className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                view === 'prompts'
-                  ? 'bg-white text-teal-800 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-700'
-              }`}
+      {/* 列表栏：宽屏固定 336px；侧边栏等窄容器下单栏切换（列表 ⇄ 编辑器） */}
+      {listVisible && (
+        <aside
+          className={`flex shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 ${
+            compact ? 'w-full border-r-0' : 'w-[336px]'
+          }`}
+        >
+          <div className="px-3 pt-3">
+            <div
+              className="flex rounded-lg bg-zinc-200/70 p-0.5"
+              role="tablist"
+              aria-label="列表切换"
             >
-              Prompt {prompts.length}
-            </button>
-            <button
-              role="tab"
-              aria-selected={view === 'templates'}
-              onClick={() => switchView('templates')}
-              className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                view === 'templates'
-                  ? 'bg-white text-teal-800 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-700'
-              }`}
-            >
-              <LayoutTemplate className="h-3 w-3" />
-              模板 {templates.length}
-            </button>
-          </div>
-        </div>
-
-        {view === 'prompts' ? (
-          <>
-            <div className="flex items-center gap-2 px-3 pt-3">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索标题或正文"
-                  className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-8 pr-2 text-xs text-zinc-700 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-                />
-              </div>
               <button
-                onClick={startAddFolder}
-                title="新建目录"
-                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 shadow-sm transition hover:border-teal-600 hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                role="tab"
+                aria-selected={view === 'prompts'}
+                onClick={() => switchView('prompts')}
+                className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                  view === 'prompts'
+                    ? 'bg-white text-teal-800 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-700'
+                }`}
               >
-                <FolderPlus className="h-4 w-4" />
+                Prompt {prompts.length}
               </button>
               <button
-                onClick={() => void createPromptIn(null)}
-                title="新建 Prompt（未分组）"
-                className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                role="tab"
+                aria-selected={view === 'templates'}
+                onClick={() => switchView('templates')}
+                className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                  view === 'templates'
+                    ? 'bg-white text-teal-800 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-700'
+                }`}
               >
-                <Plus className="h-4 w-4" />
+                <LayoutTemplate className="h-3 w-3" />
+                模板 {templates.length}
               </button>
             </div>
+          </div>
 
-            <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
-              {addingFolder && (
-                <div className="mb-1.5 flex items-center gap-1.5 rounded-md border border-teal-500 bg-white px-2 py-1">
-                  <FolderPlus className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+          {view === 'prompts' ? (
+            <>
+              <div className="flex items-center gap-2 px-3 pt-3">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
                   <input
-                    autoFocus
-                    value={folderNameDraft}
-                    onChange={(e) => setFolderNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void submitNewFolder();
-                      if (e.key === 'Escape') {
-                        setAddingFolder(false);
-                        setFolderNameDraft('');
-                      }
-                    }}
-                    onBlur={() => void submitNewFolder()}
-                    placeholder="目录名称，回车创建"
-                    className="min-w-0 flex-1 bg-transparent text-[12px] text-zinc-800 outline-none placeholder:text-zinc-300"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="搜索标题或正文"
+                    className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-8 pr-2 text-xs text-zinc-700 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                   />
                 </div>
-              )}
-
-              {loading ? (
-                <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
-              ) : query ? (
-                visible.length === 0 ? (
-                  <p className="px-2 py-4 text-xs text-zinc-400">没有匹配的 Prompt</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {visible.map((item) => (
-                      <PromptCardRow
-                        key={item.id}
-                        item={item}
-                        active={item.id === activePrompt?.id}
-                        folders={folders}
-                        folderLabel={
-                          item.folderId ? (folderNameById.get(item.folderId) ?? null) : null
-                        }
-                        moveMenuOpen={moveMenuFor === item.id}
-                        onToggleMoveMenu={setMoveMenuFor}
-                        onSelect={selectPrompt}
-                        onTogglePin={togglePin}
-                        onRequestCopy={requestCopy}
-                        onRequestDelete={setDeletingPrompt}
-                        onMove={movePrompt}
-                        dragging={draggingId === item.id}
-                        dropHint={dropHint?.id === item.id ? dropHint.position : null}
-                        onDragStart={handleCardDragStart}
-                        onDragOver={handleCardDragOver}
-                        onDrop={handleCardDrop}
-                        onDragEnd={clearDragState}
-                      />
-                    ))}
-                  </ul>
-                )
-              ) : prompts.length === 0 && folders.length === 0 ? (
-                <EmptyList hasPrompts={false} />
-              ) : (
-                <div className="space-y-2">
-                  {sections.map((section) => {
-                    const key = section.folder?.id ?? UNGROUPED_KEY;
-                    const collapsed = collapsedGroups.has(key);
-                    return (
-                      <div
-                        key={key}
-                        onDragOver={(e) => handleSectionDragOver(e, key)}
-                        onDrop={(e) => void handleSectionDrop(e, section.folder?.id ?? null)}
-                        className={`rounded-md transition ${
-                          folderDropKey === key
-                            ? 'bg-teal-50/70 ring-1 ring-inset ring-teal-300'
-                            : ''
-                        }`}
-                      >
-                        {folders.length > 0 && (
-                          <FolderHeader
-                            folder={section.folder}
-                            count={section.prompts.length}
-                            collapsed={collapsed}
-                            editing={!!section.folder && editingFolderId === section.folder.id}
-                            draftName={folderNameDraft}
-                            onDraftName={setFolderNameDraft}
-                            onToggle={() => toggleGroupCollapsed(key)}
-                            onAddPrompt={() => void createPromptIn(section.folder?.id ?? null)}
-                            onStartRename={
-                              section.folder ? () => startRenameFolder(section.folder!) : undefined
-                            }
-                            onDelete={
-                              section.folder ? () => setDeletingFolder(section.folder) : undefined
-                            }
-                            onSubmitName={() => void submitRenameFolder()}
-                            onCancelEdit={() => {
-                              setEditingFolderId(null);
-                              setFolderNameDraft('');
-                            }}
-                            dragging={!!section.folder && draggingFolderId === section.folder.id}
-                            dropHint={
-                              section.folder && folderOrderHint?.id === section.folder.id
-                                ? folderOrderHint.position
-                                : null
-                            }
-                            onDragStart={handleFolderDragStart}
-                            onDragOver={handleFolderDragOver}
-                            onDrop={handleFolderDrop}
-                            onDragEnd={clearDragState}
-                          />
-                        )}
-                        {!collapsed &&
-                          (section.prompts.length === 0 ? (
-                            section.folder ? (
-                              <p className="px-2 py-1 text-[11px] text-zinc-400">
-                                这个目录还是空的，点右上角 + 创建
-                              </p>
-                            ) : folders.length > 0 ? (
-                              <p className="px-2 py-1 text-[11px] text-zinc-400">
-                                没有未分组的 Prompt
-                              </p>
-                            ) : null
-                          ) : (
-                            <ul className="space-y-1">
-                              {section.prompts.map((item) => (
-                                <PromptCardRow
-                                  key={item.id}
-                                  item={item}
-                                  active={item.id === activePrompt?.id}
-                                  folders={folders}
-                                  moveMenuOpen={moveMenuFor === item.id}
-                                  onToggleMoveMenu={setMoveMenuFor}
-                                  onSelect={selectPrompt}
-                                  onTogglePin={togglePin}
-                                  onRequestCopy={requestCopy}
-                                  onRequestDelete={setDeletingPrompt}
-                                  onMove={movePrompt}
-                                  dragging={draggingId === item.id}
-                                  dropHint={dropHint?.id === item.id ? dropHint.position : null}
-                                  onDragStart={handleCardDragStart}
-                                  onDragOver={handleCardDragOver}
-                                  onDrop={handleCardDrop}
-                                  onDragEnd={clearDragState}
-                                />
-                              ))}
-                            </ul>
-                          ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
-            {templates.length === 0 ? (
-              <div className="px-2 py-4 text-xs leading-5 text-zinc-400">
-                还没有模板。
-                <br />
-                选中一条 Prompt
-                后点编辑区下方的「存为模板」，它就会出现在这里，之后可一键基于它新建。
+                <button
+                  onClick={() => startAddFolder(null)}
+                  title="新建目录"
+                  className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 shadow-sm transition hover:border-teal-600 hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => void createPromptIn(null)}
+                  title="新建 Prompt（未分组）"
+                  className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
               </div>
-            ) : (
-              <ul className="space-y-1">
-                {sortedTemplates.map((t) => {
-                  const active = t.id === previewTemplateId;
-                  return (
-                    <li key={t.id} className="group relative">
-                      <button
-                        onClick={() => setPreviewTemplateId(t.id)}
-                        title="点击浏览模板内容"
-                        className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-16 text-left transition ${
-                          active
-                            ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
-                            : 'hover:bg-white hover:shadow-sm'
-                        }`}
-                      >
-                        <span
-                          className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ring-1 ${
-                            active
-                              ? 'bg-teal-600 text-white ring-teal-600'
-                              : 'bg-teal-50 text-teal-600 ring-teal-100'
-                          }`}
-                        >
-                          <LayoutTemplate className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className={`block truncate text-[13px] font-medium ${
-                              active ? 'text-teal-900' : 'text-zinc-800'
-                            }`}
-                          >
-                            {t.name || '未命名模板'}
-                          </span>
-                          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
-                            {t.content ? t.content.split('\n')[0] : '（空）'}
-                          </span>
-                          <span className="mt-0.5 block text-[11px] text-zinc-400">
-                            存于 {formatUpdatedAt(t.createdAt)}
-                          </span>
-                        </span>
-                      </button>
-                      <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                        <button
-                          onClick={() => handleCreateFromTemplate(t.id)}
-                          title="基于此模板新建 Prompt"
-                          className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeletingTemplate(t)}
-                          title="删除模板"
-                          className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-      </aside>
+
+              <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
+                {addingFolder && addingFolderParent === null && renderNewFolderInput(null)}
+
+                {loading ? (
+                  <p className="px-2 py-4 text-xs text-zinc-400">加载中…</p>
+                ) : query ? (
+                  visible.length === 0 ? (
+                    <p className="px-2 py-4 text-xs text-zinc-400">没有匹配的 Prompt</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {visible.map((item) =>
+                        renderPromptCard(
+                          item,
+                          item.folderId ? (folderNameById.get(item.folderId) ?? null) : null,
+                        ),
+                      )}
+                    </ul>
+                  )
+                ) : prompts.length === 0 && folders.length === 0 ? (
+                  <EmptyList hasPrompts={false} />
+                ) : (
+                  <div className="space-y-2">
+                    {groupedPrompts.sections.map((section) => renderPromptSection(section, 1))}
+                    {renderUngroupedPrompts(groupedPrompts.ungrouped)}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 px-3 pt-3">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="搜索模板名称或内容"
+                    className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-8 pr-2 text-xs text-zinc-700 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+                <button
+                  onClick={() => startAddFolder(null)}
+                  title="新建目录"
+                  className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 shadow-sm transition hover:border-teal-600 hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => void createTemplateIn(null)}
+                  title="新建模板（未分组）"
+                  className="rounded-md bg-teal-700 p-1.5 text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 pt-1">
+                {addingFolder && addingFolderParent === null && renderNewFolderInput(null)}
+
+                {templates.length === 0 && folders.length === 0 ? (
+                  <div className="px-2 py-4 text-xs leading-5 text-zinc-400">
+                    还没有模板。
+                    <br />
+                    选中一条 Prompt 后点编辑区下方的「存为模板」，或点上方 + 直接新建空白模板。
+                  </div>
+                ) : query &&
+                  groupedTemplates.sections.length === 0 &&
+                  groupedTemplates.ungrouped.length === 0 ? (
+                  <p className="px-2 py-4 text-xs text-zinc-400">没有匹配的模板</p>
+                ) : (
+                  <div className="space-y-2">
+                    {groupedTemplates.sections.map((section) => renderTemplateSection(section, 1))}
+                    {renderUngroupedTemplates(groupedTemplates.ungrouped)}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </aside>
+      )}
 
       {/* 编辑区：模板视图下直接编辑模板 */}
-      <section className="flex min-w-0 flex-1 flex-col bg-white">
-        {previewTemplate ? (
-          <TemplateEditor
-            template={previewTemplate}
-            onChange={(patch) => updateTemplate(previewTemplate.id, patch)}
-            onCreate={() => handleCreateFromTemplate(previewTemplate.id)}
-            onDelete={() => handleDeleteTemplate(previewTemplate.id)}
-            wrapEnabled={wrapEnabled}
-            setWrapEnabled={setWrapEnabled}
-          />
-        ) : activePrompt ? (
-          <>
-            <div className="flex items-center gap-3 border-b border-zinc-100 px-5 pb-3 pt-4">
-              <input
-                value={activePrompt.title}
-                onChange={(e) => updateActive({ title: e.target.value })}
-                placeholder="Prompt 标题"
-                className="min-w-0 flex-1 border-b border-transparent bg-transparent text-base font-semibold text-zinc-900 outline-none transition placeholder:text-zinc-300 hover:border-zinc-200 focus:border-teal-500"
-              />
-              <button
-                onClick={() => togglePin(activePrompt.id)}
-                title={activePrompt.pinned ? '取消置顶' : '置顶'}
-                className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                  activePrompt.pinned
-                    ? 'text-amber-400 hover:bg-amber-50'
-                    : 'text-zinc-300 hover:bg-amber-50 hover:text-amber-500'
-                }`}
-              >
-                <Star className={`h-4 w-4 ${activePrompt.pinned ? 'fill-amber-400' : ''}`} />
-              </button>
-              <SaveStatusBadge status={status} />
-            </div>
-
-            <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
-              <span className="font-mono">
-                {formatCount(activePrompt.content)}
-                {activePrompt.copyCount ? ` · 复制 ${activePrompt.copyCount} 次` : ''}
-              </span>
-              <span className="flex items-center gap-3">
-                <label
-                  htmlFor="editor-wrap-prompt"
-                  className="flex cursor-pointer select-none items-center gap-1.5 transition hover:text-zinc-600"
-                >
-                  <Checkbox
-                    id="editor-wrap-prompt"
-                    checked={wrapEnabled}
-                    onCheckedChange={setWrapEnabled}
-                  />
-                  自动换行
-                </label>
-                <span className="flex items-center gap-1">
-                  <PenLine className="h-3 w-3" />
-                  Tab 缩进 · 修改后自动保存
-                </span>
-              </span>
-            </div>
-
-            <EditorPane
-              value={activePrompt.content}
-              onChange={(content) => updateActive({ content })}
-              onKeyDown={handleEditorKeyDown}
-              placeholder="在这里编写 Prompt，可以自由换行…"
+      {editorVisible && (
+        <section className="flex min-w-0 flex-1 flex-col bg-white">
+          {previewTemplate ? (
+            <TemplateEditor
+              template={previewTemplate}
+              onChange={(patch) => updateTemplate(previewTemplate.id, patch)}
+              onCreate={() => handleCreateFromTemplate(previewTemplate.id)}
+              onDelete={() => handleDeleteTemplate(previewTemplate.id)}
               wrapEnabled={wrapEnabled}
+              setWrapEnabled={setWrapEnabled}
+              onBack={compact ? () => setForceList(true) : undefined}
             />
+          ) : activePrompt ? (
+            <>
+              <div className="flex items-center gap-3 border-b border-zinc-100 px-5 pb-3 pt-4">
+                {compact && (
+                  <button
+                    onClick={() => setForceList(true)}
+                    title="返回列表"
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                )}
+                <input
+                  value={activePrompt.title}
+                  onChange={(e) => updateActive({ title: e.target.value })}
+                  placeholder="Prompt 标题"
+                  className="min-w-0 flex-1 border-b border-transparent bg-transparent text-base font-semibold text-zinc-900 outline-none transition placeholder:text-zinc-300 hover:border-zinc-200 focus:border-teal-500"
+                />
+                <button
+                  onClick={() => togglePin(activePrompt.id)}
+                  title={activePrompt.pinned ? '取消置顶' : '置顶'}
+                  className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                    activePrompt.pinned
+                      ? 'text-amber-400 hover:bg-amber-50'
+                      : 'text-zinc-300 hover:bg-amber-50 hover:text-amber-500'
+                  }`}
+                >
+                  <Star className={`h-4 w-4 ${activePrompt.pinned ? 'fill-amber-400' : ''}`} />
+                </button>
+                <SaveStatusBadge status={status} />
+              </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
-              <button
-                onClick={handleSaveAsTemplate}
-                disabled={!activePrompt.content}
-                title="把当前内容保存为模板，之后可基于它新建"
-                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                  templateSaved
-                    ? 'border-teal-600 bg-teal-50 text-teal-700'
-                    : 'border-zinc-200 text-zinc-600 hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-200 disabled:hover:bg-transparent disabled:hover:text-zinc-600'
-                }`}
-              >
-                <BookmarkPlus className="h-3.5 w-3.5" />
-                {templateSaved ? '已存为模板' : '存为模板'}
-              </button>
-              <button
-                onClick={deleteActive}
-                className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                删除
-              </button>
-              <button
-                onClick={copyActive}
-                className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs text-white shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
-                  copied ? 'bg-teal-900' : 'bg-teal-700 hover:bg-teal-800'
-                }`}
-              >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? '已复制' : '复制全文'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <EmptyEditor onAdd={() => void createPromptIn(null)} />
-        )}
-      </section>
+              <div className="flex items-center justify-between px-5 pt-2 text-[11px] text-zinc-400">
+                <span className="font-mono">
+                  {formatCount(activePrompt.content)}
+                  {activePrompt.copyCount ? ` · 复制 ${activePrompt.copyCount} 次` : ''}
+                </span>
+                <span className="flex items-center gap-3">
+                  <label
+                    htmlFor="editor-wrap-prompt"
+                    className="flex cursor-pointer select-none items-center gap-1.5 transition hover:text-zinc-600"
+                  >
+                    <Checkbox
+                      id="editor-wrap-prompt"
+                      checked={wrapEnabled}
+                      onCheckedChange={setWrapEnabled}
+                    />
+                    自动换行
+                  </label>
+                  <span className="flex items-center gap-1">
+                    <PenLine className="h-3 w-3" />
+                    Tab 缩进 · 修改后自动保存
+                  </span>
+                </span>
+              </div>
+
+              <EditorPane
+                value={activePrompt.content}
+                onChange={(content) => updateActive({ content })}
+                onKeyDown={handleEditorKeyDown}
+                placeholder="在这里编写 Prompt，可以自由换行…"
+                wrapEnabled={wrapEnabled}
+              />
+
+              <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-5 py-3">
+                <button
+                  onClick={handleSaveAsTemplate}
+                  disabled={!activePrompt.content}
+                  title="把当前内容保存为模板，之后可基于它新建"
+                  className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                    templateSaved
+                      ? 'border-teal-600 bg-teal-50 text-teal-700'
+                      : 'border-zinc-200 text-zinc-600 hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-200 disabled:hover:bg-transparent disabled:hover:text-zinc-600'
+                  }`}
+                >
+                  <BookmarkPlus className="h-3.5 w-3.5" />
+                  {templateSaved ? '已存为模板' : '存为模板'}
+                </button>
+                <button
+                  onClick={deleteActive}
+                  className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  删除
+                </button>
+                <button
+                  onClick={copyActive}
+                  className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs text-white shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+                    copied ? 'bg-teal-900' : 'bg-teal-700 hover:bg-teal-800'
+                  }`}
+                >
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? '已复制' : '复制全文'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <EmptyEditor onAdd={() => void createPromptIn(null)} />
+          )}
+        </section>
+      )}
 
       {/* 复制填空面板 */}
       {pendingCopy && (
@@ -757,7 +1053,9 @@ export default function PromptManager() {
         open={!!deletingFolder}
         onOpenChange={(o) => !o && setDeletingFolder(null)}
         title="删除目录"
-        description={`「${deletingFolder?.name ?? ''}」将被删除，目录里的 Prompt 会回到未分组，不会被删除。`}
+        description={`「${deletingFolder?.name ?? ''}」${
+          deletingFolder && hasChildFolders(folders, deletingFolder.id) ? '及其子目录' : ''
+        }将被删除，目录里的 Prompt 与模板会回到未分组，不会被删除。`}
         confirmText="删除目录"
         onConfirm={() => {
           if (deletingFolder) void removeFolder(deletingFolder.id);
@@ -782,6 +1080,7 @@ export default function PromptManager() {
 /** 目录行：折叠开关、名称（可重命名）、数量、悬停操作（新建/重命名/删除） */
 function FolderHeader({
   folder,
+  depth = 1,
   count,
   collapsed,
   editing,
@@ -789,6 +1088,7 @@ function FolderHeader({
   onDraftName,
   onToggle,
   onAddPrompt,
+  onAddSubfolder,
   onStartRename,
   onDelete,
   onSubmitName,
@@ -801,6 +1101,8 @@ function FolderHeader({
   onDragEnd,
 }: {
   folder: FolderItem | null;
+  /** 1 = 顶层，2 = 子目录（子目录不能再放子目录） */
+  depth?: 1 | 2;
   count: number;
   collapsed: boolean;
   editing: boolean;
@@ -808,12 +1110,14 @@ function FolderHeader({
   onDraftName: (name: string) => void;
   onToggle: () => void;
   onAddPrompt: () => void;
+  /** 新建子目录（仅顶层目录提供） */
+  onAddSubfolder?: () => void;
   onStartRename?: () => void;
   onDelete?: () => void;
   onSubmitName: () => void;
   onCancelEdit: () => void;
   dragging: boolean;
-  dropHint: 'before' | 'after' | null;
+  dropHint: 'before' | 'after' | 'inside' | null;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragOver: (e: React.DragEvent, folder: FolderItem) => void;
   onDrop: (e: React.DragEvent, folder: FolderItem) => void;
@@ -821,9 +1125,11 @@ function FolderHeader({
 }) {
   return (
     <div
-      className={`group/folder relative flex items-center gap-0.5 rounded-md py-1 pl-1 pr-1 transition hover:bg-zinc-200/50 ${
-        dragging ? 'opacity-40' : ''
-      }`}
+      className={`group/folder relative flex items-center gap-0.5 rounded-md py-1 pl-1 pr-1 transition ${
+        dropHint === 'inside'
+          ? 'bg-teal-100/70 ring-1 ring-inset ring-teal-400'
+          : 'hover:bg-zinc-200/50'
+      } ${dragging ? 'opacity-40' : ''}`}
       onDragOver={(e) => {
         if (folder) onDragOver(e, folder);
       }}
@@ -882,7 +1188,16 @@ function FolderHeader({
       <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-zinc-400">
         {count}
       </span>
-      <span className="flex w-[70px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover/folder:opacity-100">
+      <span className="flex w-[92px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover/folder:opacity-100">
+        {folder && depth === 1 && onAddSubfolder && (
+          <button
+            onClick={onAddSubfolder}
+            title="新建子目录"
+            className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           onClick={onAddPrompt}
           title={folder ? `在「${folder.name}」中新建 Prompt` : '新建 Prompt（未分组）'}
@@ -910,6 +1225,164 @@ function FolderHeader({
         )}
       </span>
     </div>
+  );
+}
+
+/** 模板卡片：悬停操作（基于模板新建/移动到目录/删除），支持拖拽排序与跨目录 */
+function TemplateCardRow({
+  item,
+  active,
+  folders,
+  folderLabel,
+  moveMenuOpen,
+  onToggleMoveMenu,
+  onSelect,
+  onCreatePrompt,
+  onRequestDelete,
+  onMove,
+  dragging,
+  dropHint,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: {
+  item: TemplateItem;
+  active: boolean;
+  folders: FolderItem[];
+  folderLabel?: string | null;
+  moveMenuOpen: boolean;
+  onToggleMoveMenu: (id: string | null) => void;
+  onSelect: (id: string) => void;
+  onCreatePrompt: (id: string) => void;
+  onRequestDelete: (item: TemplateItem) => void;
+  onMove: (id: string, folderId: string | null) => void;
+  dragging: boolean;
+  dropHint: 'before' | 'after' | null;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onDragOver: (e: React.DragEvent, item: TemplateItem) => void;
+  onDrop: (e: React.DragEvent, item: TemplateItem) => void;
+  onDragEnd: () => void;
+}) {
+  const currentFolderId = item.folderId ?? null;
+  return (
+    <li
+      className={`group relative ${dragging ? 'opacity-40' : ''}`}
+      onDragOver={(e) => onDragOver(e, item)}
+      onDrop={(e) => void onDrop(e, item)}
+    >
+      {dropHint === 'before' && (
+        <span className="pointer-events-none absolute -top-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
+      {dropHint === 'after' && (
+        <span className="pointer-events-none absolute -bottom-0.5 left-1 right-1 h-0.5 rounded bg-teal-600" />
+      )}
+      <button
+        onClick={() => onSelect(item.id)}
+        title="点击编辑模板"
+        className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 pr-24 text-left transition ${
+          active
+            ? 'bg-white shadow-sm ring-1 ring-inset ring-teal-600'
+            : 'hover:bg-white hover:shadow-sm'
+        }`}
+      >
+        <span
+          className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ring-1 ${
+            active
+              ? 'bg-teal-600 text-white ring-teal-600'
+              : 'bg-teal-50 text-teal-600 ring-teal-100'
+          }`}
+        >
+          <LayoutTemplate className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block truncate text-[13px] font-medium ${
+              active ? 'text-teal-900' : 'text-zinc-800'
+            }`}
+          >
+            {item.name || '未命名模板'}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+            {item.content ? item.content.split('\n')[0] : '（空）'}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+            {folderLabel ? `${folderLabel} · ` : ''}
+            存于 {formatUpdatedAt(item.updatedAt ?? item.createdAt)}
+          </span>
+        </span>
+      </button>
+
+      <span
+        draggable
+        onDragStart={(e) => onDragStart(e, item.id)}
+        onDragEnd={onDragEnd}
+        title="拖动调整顺序或分组"
+        className="absolute left-1 top-2 hidden cursor-grab rounded p-1 text-zinc-300 group-hover:block hover:bg-zinc-100 hover:text-zinc-500"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
+
+      <span className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          onClick={() => onCreatePrompt(item.id)}
+          title="基于此模板新建 Prompt"
+          className="rounded p-1 text-zinc-400 transition hover:bg-teal-50 hover:text-teal-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onToggleMoveMenu(moveMenuOpen ? null : item.id)}
+          title="移动到目录"
+          className={`rounded p-1 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 ${
+            moveMenuOpen
+              ? 'bg-teal-50 text-teal-600'
+              : 'text-zinc-400 hover:bg-teal-50 hover:text-teal-600'
+          }`}
+        >
+          <FolderInput className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onRequestDelete(item)}
+          title="删除模板"
+          className="rounded p-1 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </span>
+
+      {moveMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => onToggleMoveMenu(null)} />
+          <div className="absolute right-2 top-9 z-20 w-44 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg">
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium text-zinc-400">移动到目录</p>
+            <button
+              onClick={() => onMove(item.id, null)}
+              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition hover:bg-teal-50 ${
+                currentFolderId === null ? 'text-teal-800' : 'text-zinc-700'
+              }`}
+            >
+              <span className="truncate">未分组</span>
+              {currentFolderId === null && <Check className="h-3.5 w-3.5 shrink-0 text-teal-600" />}
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => onMove(item.id, f.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition hover:bg-teal-50 ${
+                  currentFolderId === f.id ? 'text-teal-800' : 'text-zinc-700'
+                }`}
+              >
+                <span className="truncate">{f.parentId ? `└ ${f.name}` : f.name}</span>
+                {currentFolderId === f.id && (
+                  <Check className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </li>
   );
 }
 
@@ -945,7 +1418,7 @@ function PromptCardRow({
   onRequestDelete: (item: PromptItem) => void;
   onMove: (id: string, folderId: string | null) => void;
   dragging: boolean;
-  dropHint: 'before' | 'after' | null;
+  dropHint: 'before' | 'after' | 'inside' | null;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragOver: (e: React.DragEvent, item: PromptItem) => void;
   onDrop: (e: React.DragEvent, item: PromptItem) => void;
@@ -1130,6 +1603,7 @@ function TemplateEditor({
   onDelete,
   wrapEnabled,
   setWrapEnabled,
+  onBack,
 }: {
   template: TemplateItem;
   onChange: (patch: Partial<Omit<TemplateItem, 'id' | 'createdAt'>>) => void;
@@ -1137,10 +1611,21 @@ function TemplateEditor({
   onDelete: () => void;
   wrapEnabled: boolean;
   setWrapEnabled: (enabled: boolean) => void;
+  /** 窄容器下显示返回列表按钮 */
+  onBack?: () => void;
 }) {
   return (
     <>
       <div className="flex items-center gap-2.5 border-b border-zinc-100 px-5 pb-3 pt-4">
+        {onBack && (
+          <button
+            onClick={onBack}
+            title="返回列表"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-teal-50 text-teal-600 ring-1 ring-teal-100">
           <LayoutTemplate className="h-3.5 w-3.5" />
         </span>

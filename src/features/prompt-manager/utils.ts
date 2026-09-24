@@ -57,6 +57,15 @@ export function fillVariables(content: string, values: Record<string, string>): 
   });
 }
 
+/** 模板按关键词过滤：名称或内容包含即命中，空关键词返回全部 */
+export function filterTemplates(templates: TemplateItem[], query: string): TemplateItem[] {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return templates;
+  return templates.filter(
+    (t) => t.name.toLowerCase().includes(keyword) || t.content.toLowerCase().includes(keyword),
+  );
+}
+
 /** 排序：置顶优先 → 手动顺序 → 最近修改（未手动排序过的排在有顺序的之后） */
 export function sortPrompts(prompts: PromptItem[]): PromptItem[] {
   return [...prompts].sort(
@@ -108,14 +117,40 @@ export function topOrderIn(prompts: PromptItem[], folderId: string | null): numb
   return Math.min(...siblings.map(orderOf)) - 1;
 }
 
-export function createFolderItem(name: string, now = Date.now(), order?: number): FolderItem {
+export function createFolderItem(
+  name: string,
+  now = Date.now(),
+  order?: number,
+  parentId: string | null = null,
+): FolderItem {
   return {
     id: generateId(),
     name: name.trim() || '未命名目录',
     createdAt: now,
     updatedAt: now,
+    parentId,
     ...(order === undefined ? {} : { order }),
   };
+}
+
+/** 目录的子目录 id（含自身），用于级联删除 */
+export function folderSubtreeIds(folders: FolderItem[], id: string): string[] {
+  const ids = [id];
+  for (const folder of folders) {
+    if (folder.parentId === id) ids.push(...folderSubtreeIds(folders, folder.id));
+  }
+  return ids;
+}
+
+/** 该目录能否再放子目录（只有顶层目录可以，最多两层） */
+export function canNestUnder(folders: FolderItem[], parentId: string): boolean {
+  const parent = folders.find((f) => f.id === parentId);
+  return !!parent && !parent.parentId;
+}
+
+/** 该目录是否已有子目录（有子目录的目录不能再被拖动嵌套） */
+export function hasChildFolders(folders: FolderItem[], id: string): boolean {
+  return folders.some((f) => f.parentId === id);
 }
 
 function folderOrderOf(folder: FolderItem): number {
@@ -129,53 +164,151 @@ export function sortFolders(folders: FolderItem[]): FolderItem[] {
   );
 }
 
-/** 新建目录追加到末尾时使用的 order */
-export function bottomFolderOrderIn(folders: FolderItem[]): number {
-  const ordered = folders.map(folderOrderOf).filter((value) => value !== Number.MAX_SAFE_INTEGER);
-  return ordered.length > 0 ? Math.max(...ordered) + 1 : folders.length;
+/** 新建目录追加到末尾时使用的 order（按同层目录计算） */
+export function bottomFolderOrderIn(folders: FolderItem[], parentId: string | null = null): number {
+  const siblings = folders.filter((f) => (f.parentId ?? null) === parentId);
+  const ordered = siblings.map(folderOrderOf).filter((value) => value !== Number.MAX_SAFE_INTEGER);
+  return ordered.length > 0 ? Math.max(...ordered) + 1 : siblings.length;
 }
 
-/** 目录拖拽落点：把 draggedId 放到 beforeId 之前（null = 末尾），并重排全部目录的 order */
+/**
+ * 目录拖拽落点：把 draggedId 放到目标层级（targetParentId）的 beforeId 之前（null = 末尾）。
+ * 层级约束：最多两层 —— 目标父目录必须是顶层，且被拖动的目录本身没有子目录，否则退化为放到顶层。
+ */
 export function computeFolderDropOrder(
   folders: FolderItem[],
   draggedId: string,
+  targetParentId: string | null,
   beforeId: string | null,
 ): FolderItem[] {
   const dragged = folders.find((f) => f.id === draggedId);
   if (!dragged) return folders;
-  const rest = sortFolders(folders.filter((f) => f.id !== draggedId));
-  const insertIndex = beforeId ? rest.findIndex((f) => f.id === beforeId) : rest.length;
-  const ordered = [...rest];
-  ordered.splice(insertIndex === -1 ? rest.length : insertIndex, 0, dragged);
+
+  let parentId = targetParentId;
+  if (parentId) {
+    const legalParent = canNestUnder(folders, parentId);
+    const draggedHasChildren = hasChildFolders(folders, draggedId);
+    if (!legalParent || draggedHasChildren || parentId === draggedId) parentId = null;
+  }
+
+  const siblings = sortFolders(
+    folders.filter((f) => f.id !== draggedId && (f.parentId ?? null) === parentId),
+  );
+  const insertIndex = beforeId ? siblings.findIndex((f) => f.id === beforeId) : siblings.length;
+  const ordered = [...siblings];
+  ordered.splice(insertIndex === -1 ? siblings.length : insertIndex, 0, dragged);
   const orderById = new Map(ordered.map((folder, index) => [folder.id, index]));
-  return folders.map((folder) => ({ ...folder, order: orderById.get(folder.id) ?? 0 }));
+
+  return folders.map((folder) => {
+    const order = orderById.get(folder.id);
+    if (folder.id === draggedId) return { ...folder, parentId, order: order ?? 0 };
+    return order === undefined ? folder : { ...folder, order };
+  });
 }
 
-export interface PromptSection {
-  /** null 表示未分组（默认目录） */
-  folder: FolderItem | null;
-  prompts: PromptItem[];
+export interface FolderSection<T> {
+  folder: FolderItem;
+  items: T[];
+  /** 子目录分组（最多一层） */
+  children: FolderSection<T>[];
+}
+
+export interface GroupedByFolder<T> {
+  sections: FolderSection<T>[];
+  /** 未分组条目（含 folderId 指向已删除目录的） */
+  ungrouped: T[];
 }
 
 /**
- * 按目录分组：先目录（创建顺序），最后是未分组。
- * folderId 指向已删除目录的 Prompt 自动归入未分组。
+ * 按目录分组为两层结构：顶层目录 → 子目录。
+ * 父目录不存在的目录按顶层处理，避免出现孤儿分组。
  */
+export function groupByFolder<T extends { folderId?: string | null }>(
+  items: T[],
+  folders: FolderItem[],
+): GroupedByFolder<T> {
+  const sorted = sortFolders(folders);
+  const byId = new Map(sorted.map((f) => [f.id, f]));
+  const topLevel: FolderItem[] = [];
+  const childMap = new Map<string, FolderItem[]>();
+
+  for (const folder of sorted) {
+    const parentId = folder.parentId && byId.has(folder.parentId) ? folder.parentId : null;
+    if (!parentId) {
+      topLevel.push(folder);
+      continue;
+    }
+    const siblings = childMap.get(parentId) ?? [];
+    siblings.push(folder);
+    childMap.set(parentId, siblings);
+  }
+
+  const build = (folder: FolderItem): FolderSection<T> => ({
+    folder,
+    items: items.filter((item) => item.folderId === folder.id),
+    children: (childMap.get(folder.id) ?? []).map(build),
+  });
+
+  const known = new Set(sorted.map((f) => f.id));
+  return {
+    sections: topLevel.map(build),
+    ungrouped: items.filter((item) => !item.folderId || !known.has(item.folderId)),
+  };
+}
+
 export function groupPromptsByFolder(
   prompts: PromptItem[],
   folders: FolderItem[],
-): PromptSection[] {
-  const sorted = sortFolders(folders);
-  const known = new Set(sorted.map((f) => f.id));
-  const sections: PromptSection[] = sorted.map((folder) => ({
-    folder,
-    prompts: prompts.filter((p) => p.folderId === folder.id),
-  }));
-  sections.push({
-    folder: null,
-    prompts: prompts.filter((p) => !p.folderId || !known.has(p.folderId)),
+): GroupedByFolder<PromptItem> {
+  return groupByFolder(prompts, folders);
+}
+
+export function groupTemplatesByFolder(
+  templates: TemplateItem[],
+  folders: FolderItem[],
+): GroupedByFolder<TemplateItem> {
+  return groupByFolder(templates, folders);
+}
+
+/** 模板排序：手动顺序优先，其次最近修改（回退创建时间） */
+export function sortTemplates(templates: TemplateItem[]): TemplateItem[] {
+  const orderOf = (t: TemplateItem) =>
+    typeof t.order === 'number' ? t.order : Number.MAX_SAFE_INTEGER;
+  return [...templates].sort(
+    (a, b) =>
+      orderOf(a) - orderOf(b) || (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt),
+  );
+}
+
+/** 模板插入到分组顶部时使用的 order */
+export function topTemplateOrderIn(templates: TemplateItem[], folderId: string | null): number {
+  const siblings = templates.filter((t) => (t.folderId ?? null) === folderId);
+  if (siblings.length === 0) return 0;
+  const orders = siblings.map((t) => t.order).filter((o): o is number => typeof o === 'number');
+  return orders.length > 0 ? Math.min(...orders) - 1 : siblings.length;
+}
+
+/** 模板拖拽落点：与 Prompt 同构（重排目标分组 order、更新 folderId） */
+export function computeTemplateDropOrder(
+  templates: TemplateItem[],
+  draggedId: string,
+  targetFolderId: string | null,
+  beforeId: string | null,
+): TemplateItem[] {
+  const dragged = templates.find((t) => t.id === draggedId);
+  if (!dragged) return templates;
+  const siblings = sortTemplates(
+    templates.filter((t) => t.id !== draggedId && (t.folderId ?? null) === targetFolderId),
+  );
+  const insertIndex = beforeId ? siblings.findIndex((t) => t.id === beforeId) : siblings.length;
+  const ordered = [...siblings];
+  ordered.splice(insertIndex === -1 ? siblings.length : insertIndex, 0, dragged);
+  const orderById = new Map(ordered.map((item, index) => [item.id, index]));
+  return templates.map((item) => {
+    const nextOrder = orderById.get(item.id);
+    if (item.id === draggedId) return { ...item, folderId: targetFolderId, order: nextOrder ?? 0 };
+    return nextOrder === undefined ? item : { ...item, order: nextOrder };
   });
-  return sections;
 }
 
 /** 按关键词过滤：标题或正文包含即命中，空关键词返回全部 */
