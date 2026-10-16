@@ -27,6 +27,8 @@ import Checkbox from '@/components/ui/Checkbox';
 import EditorPane from './EditorPane';
 import { usePromptManager } from '../hooks/usePromptManager';
 import {
+  effectiveListWidth,
+  editorMinWidth,
   extractVariables,
   filterPrompts,
   filterTemplates,
@@ -54,18 +56,50 @@ const INDENT = '    ';
 /** 未分组分组的折叠状态 key（与目录 id 同处一个集合） */
 const UNGROUPED_KEY = '__ungrouped';
 
-/** 侧边栏等窄容器（<460px）：切换为「列表 / 编辑器」单栏模式，避免两栏互相挤压 */
-function useCompactLayout() {
-  const [compact, setCompact] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 460px)').matches,
+/** 容器窄于该宽度时切换为「列表 / 编辑器」单栏，避免两栏互相挤压 */
+const COMPACT_WIDTH = 460;
+
+/** 视口级别的兜底判断：容器宽度测出来之前先用它，避免首帧闪一下 */
+function useNarrowViewport() {
+  const [narrow, setNarrow] = useState(
+    () =>
+      typeof window !== 'undefined' && window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`).matches,
   );
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 460px)');
-    const onChange = () => setCompact(query.matches);
+    const query = window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`);
+    const onChange = () => setNarrow(query.matches);
     query.addEventListener('change', onChange);
     return () => query.removeEventListener('change', onChange);
   }, []);
-  return compact;
+  return narrow;
+}
+
+/**
+ * 跟踪容器实际宽度，用于按比例分配列表栏与编辑区。
+ * 返回的 ref 挂到根元素上；未测量到时为 0。
+ */
+function useContainerWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const update = () => setWidth(Math.round(element.getBoundingClientRect().width));
+    // 先主动量一次，别等观察者回调，否则首帧会先按 0 渲染
+    update();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => update());
+    observer?.observe(element);
+    // 兜底：观察者不可用或没派发时，窗口尺寸变化也能纠正
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+
+  return [ref, width] as const;
 }
 
 /** 在编辑器里恢复光标/选区（React 受控更新后执行） */
@@ -110,11 +144,17 @@ export default function PromptManager() {
     movePrompt,
     dropPrompt,
   } = usePromptManager();
-  const compact = useCompactLayout();
+  const narrowViewport = useNarrowViewport();
+  const [containerRef, containerWidth] = useContainerWidth<HTMLDivElement>();
+  // 用实际容器宽度判定单栏，而不是视口宽度：工作台左侧还有 208px 导航，
+  // 视口够宽不代表留给功能的宽度够
+  const compact = containerWidth > 0 ? containerWidth < COMPACT_WIDTH : narrowViewport;
+  // 列表栏宽度取「目标宽度」与「容器宽 / 2.1」的较小者：容器够宽时就是固定宽度，
+  // 容器变窄时列表跟着收窄，始终保证编辑区比列表宽 10%（而不是把编辑区挤没）
+  const listColumnWidth = effectiveListWidth(containerWidth);
+  const editorWidth = editorMinWidth(listColumnWidth);
   // 窄容器（侧边栏）默认先展示列表，选中后再进入编辑器
-  const [forceList, setForceList] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 460px)').matches,
-  );
+  const [forceList, setForceList] = useState(narrowViewport);
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<'prompts' | 'templates'>('prompts');
@@ -219,6 +259,16 @@ export default function PromptManager() {
     if (editingFolderId) await renameFolder(editingFolderId, folderNameDraft);
     setEditingFolderId(null);
     setFolderNameDraft('');
+  };
+
+  /**
+   * 快捷新建：列表栏收起时也能新增。
+   * 先展开列表并切回 Prompt 视图，让新建的条目在编辑器里立即可见。
+   */
+  const handleNewPrompt = async (folderId: string | null) => {
+    setView('prompts');
+    setForceList(false);
+    await createPromptIn(folderId);
   };
 
   /** 在指定目录中新建模板，并展开该分组 */
@@ -783,12 +833,16 @@ export default function PromptManager() {
   const listVisible = compact ? !editorVisible : !listCollapsed;
 
   return (
-    <div className="flex h-full min-h-0">
-      {/* 列表栏：宽屏固定 336px；侧边栏等窄容器下单栏切换（列表 ⇄ 编辑器） */}
+    // min-w-0 关键：根元素是 flex item，默认 min-width:auto 会让它撑到内容宽度，
+    // 于是「按容器宽度算列表宽度」会测到溢出后的值，形成循环依赖、永远收不回来
+    <div ref={containerRef} className="flex h-full min-h-0 min-w-0 overflow-hidden">
+      {/* 列表栏：宽屏下宽度固定（可配置），向右占用空间、不改变容器总宽；
+          侧边栏等窄容器下单栏切换（列表 ⇄ 编辑器） */}
       {listVisible && (
         <aside
+          style={compact ? undefined : { width: listColumnWidth }}
           className={`flex shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 ${
-            compact ? 'w-full border-r-0' : 'w-[336px] max-[720px]:w-52'
+            compact ? 'w-full border-r-0' : ''
           }`}
         >
           <div className="px-3 pt-3">
@@ -944,9 +998,9 @@ export default function PromptManager() {
         </aside>
       )}
 
-      {/* 列表收起时的窄边条：保证任何时候都能重新展开 */}
+      {/* 列表收起时的窄边条：保证任何时候都能重新展开，也能直接新建提示词 */}
       {!compact && listCollapsed && (
-        <div className="flex w-9 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-2">
+        <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-r border-zinc-200 bg-zinc-50 py-2">
           <button
             onClick={() => setListCollapsed(false)}
             title="展开列表"
@@ -955,12 +1009,23 @@ export default function PromptManager() {
           >
             <PanelLeftOpen className="h-4 w-4" />
           </button>
+          <button
+            onClick={() => void handleNewPrompt(null)}
+            title="新建 Prompt（未分组）"
+            aria-label="新建 Prompt"
+            className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition hover:bg-white hover:text-teal-700 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
       )}
 
       {/* 编辑区：模板视图下直接编辑模板 */}
       {editorVisible && (
-        <section className="flex min-w-0 flex-1 flex-col bg-white">
+        <section
+          style={compact ? undefined : { minWidth: editorWidth }}
+          className="flex min-w-0 flex-1 flex-col bg-white"
+        >
           {previewTemplate ? (
             <TemplateEditor
               template={previewTemplate}

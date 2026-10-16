@@ -9,6 +9,10 @@ import {
   createPromptFromTemplate,
   createPromptItem,
   createTemplateFromPrompt,
+  DEFAULT_LIST_WIDTH,
+  EDITOR_LIST_RATIO,
+  editorMinWidth,
+  effectiveListWidth,
   extractVariables,
   filterPrompts,
   filterTemplates,
@@ -409,5 +413,38 @@ describe('filterTemplates', () => {
 
   it('returns all for blank query', () => {
     expect(filterTemplates(templates, '  ')).toHaveLength(2);
+  });
+});
+
+describe('列表栏宽度', () => {
+  it('容器够宽时列表栏就是固定宽度', () => {
+    expect(effectiveListWidth(1200)).toBe(DEFAULT_LIST_WIDTH);
+    expect(effectiveListWidth(706)).toBe(DEFAULT_LIST_WIDTH);
+  });
+
+  it('容器变窄时列表栏跟着收窄，保证编辑区至少比它宽 10%', () => {
+    // 500 / 2.1 = 238.09 → 238
+    expect(effectiveListWidth(500)).toBe(238);
+    expect(effectiveListWidth(460)).toBe(219);
+  });
+
+  it('任何宽度下编辑区都不小于列表栏的 1.1 倍', () => {
+    for (const container of [460, 500, 600, 706, 900, 1440]) {
+      const list = effectiveListWidth(container);
+      const editor = editorMinWidth(list);
+      expect(editor).toBeGreaterThanOrEqual(list * EDITOR_LIST_RATIO);
+      // 两栏加起来不超过容器宽度，因此展开/收起都不会把内容挤出窗口
+      expect(list + editor).toBeLessThanOrEqual(container);
+    }
+  });
+
+  it('容器还没测量出来时先用目标宽度，避免宽度闪成 0', () => {
+    expect(effectiveListWidth(0)).toBe(DEFAULT_LIST_WIDTH);
+    expect(effectiveListWidth(Number.NaN)).toBe(DEFAULT_LIST_WIDTH);
+  });
+
+  it('editorMinWidth 向上取整，不会因为舍入破坏 10% 关系', () => {
+    expect(editorMinWidth(336)).toBe(370);
+    expect(editorMinWidth(219)).toBe(241);
   });
 });

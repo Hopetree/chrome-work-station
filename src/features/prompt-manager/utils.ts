@@ -353,3 +353,26 @@ export function formatUpdatedAt(timestamp: number, now = Date.now()): string {
 function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
+
+/** 列表栏在两栏模式下的目标宽度（px）；容器不够宽时按比例收窄 */
+export const DEFAULT_LIST_WIDTH = 336;
+/** 两栏模式下「编辑区 : 列表栏」的最小比例：编辑区至少比列表栏宽 10% */
+export const EDITOR_LIST_RATIO = 1.1;
+
+/**
+ * 两栏模式下列表栏的实际宽度：不超过目标宽度，也不超过「容器宽 / (1 + 比例)」。
+ * 容器窄时列表跟着收窄，保证编辑区始终比列表宽 10%，而不是把编辑区挤没。
+ */
+export function effectiveListWidth(
+  containerWidth: number,
+  targetWidth = DEFAULT_LIST_WIDTH,
+): number {
+  // 容器还没测量出来（首帧）时先用目标宽度，避免闪一下宽度为 0
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0) return targetWidth;
+  return Math.min(targetWidth, Math.floor(containerWidth / (1 + EDITOR_LIST_RATIO)));
+}
+
+/** 编辑区最小宽度：比列表栏宽 10% */
+export function editorMinWidth(listWidth: number): number {
+  return Math.ceil(listWidth * EDITOR_LIST_RATIO);
+}

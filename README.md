@@ -24,22 +24,23 @@
 | 使用统计 | 记录复制次数，卡片与编辑区展示，常用程度一目了然 |
 | 模板 | 把 Prompt 沉淀为模板（独立列表+图标），支持编辑、基于模板新建（列表卡片 + 按钮直达） |
 | 数据备份 | 设置页导出/导入 JSON，按条目合并、新者胜，数据不锁死在浏览器里 |
+| 云端同步 | 备份到你自己的 GitHub 私有仓库，可手动上传/恢复，也可开启「编辑后自动上传」；每次上传都是一次 commit，云端保留历史版本 |
 
 ## 项目结构
 
 ```
 src/
 ├── entrypoints/
-│   ├── popup/          # 弹窗：功能启动菜单
-│   ├── workbench/      # 工作台：侧边栏 + 各功能 Tab（支持 ?feature=<id> 深链）
-│   ├── options/        # 设置页
-│   └── background.ts   # 后台脚本
+│   ├── sidepanel/      # 侧边栏：点击工具栏图标直开（窄容器自动切单栏）
+│   ├── workbench/      # 工作台：功能侧边栏 + 各功能面板（支持 ?feature=<id> 深链）
+│   ├── options/        # 设置页：默认功能、数据备份、云端同步
+│   └── background.ts   # 后台脚本（设置点击图标打开侧边栏）
 ├── features/
 │   ├── types.ts        # FeatureModule 功能契约
 │   ├── registry.ts     # 功能注册表：新功能在此注册一行即可接入所有入口
 │   └── prompt-manager/ # 功能模块（自包含：components/hooks/storage/utils/types）
-├── components/layout/  # 共享布局（工作台侧边栏）
-├── lib/                # 公共工具与全局设置
+├── components/         # ui/ 定制控件（Select、Checkbox、ConfirmDialog）+ layout/ 共享布局
+├── lib/                # 公共工具（settings、backup、github-sync、cloud-sync）
 └── styles/globals.css
 ```
 
@@ -54,6 +55,22 @@ src/
 禁止使用浏览器原生控件的默认外观（原生 `select`、`confirm`、`alert` 等）。
 下拉选择统一使用 `src/components/ui/Select.tsx`；新的通用控件一律放入 `src/components/ui/`，
 与整体青绿/冷灰设计语言保持一致。
+
+## 云端同步（GitHub）
+
+数据默认只留本地。想有一份云端副本时，用自己的 GitHub 私有仓库当作存储，不需要任何第三方服务：
+
+1. 新建一个**私有仓库**专门放数据（例如 `你的用户名/cws-data`），不要用代码仓库，避免项目历史里混入数据提交。
+2. 到 [Fine-grained token 页面](https://github.com/settings/personal-access-tokens/new)建一个令牌：Repository access 选「Only select repositories」只勾这个仓库，Permissions 只给 **Contents: Read and write**，有效期按需设置。
+3. 打开扩展设置页 → 「云端同步（GitHub）」，填仓库（`owner/repo` 或直接粘仓库地址）、文件路径（默认 `data/chrome-work-station.json`）和令牌，先点「测试连接」，再点「立即上传」。
+
+之后可以按需点「立即上传 / 从云端恢复」，或勾选「自动上传」——编辑停止设定的间隔（默认 5 分钟，可改为 1–120 分钟）后自动同步（仅在侧边栏/工作台打开时运行）。换机器时在新机器上填同样的仓库和令牌，点「从云端恢复」即可。
+
+语义与取舍：
+
+- **上传**用本地数据覆盖云端文件。因为每次上传都是一次 commit，云端历史版本不会丢，误覆盖可以去仓库提交记录里找回。
+- **恢复**是按条目合并、修改时间新者胜。本地已删除而云端还存在的条目会被恢复回来 —— 需要连删除一起同步时，用「导出数据」手动处理。
+- 云端只存 Prompt、模板、目录这三类业务数据，界面偏好（折叠、换行等）不进同步。
 
 ## 开发
 

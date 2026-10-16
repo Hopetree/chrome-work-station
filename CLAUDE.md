@@ -6,7 +6,7 @@
 
 Chrome 浏览器插件「Chrome 工作站」：**面向开发者的多功能效率工具合集**。每个功能有独立界面与数据，按模块隔离开发。基于 **WXT 0.19 + React 18 + TypeScript + Tailwind CSS**，图标用 lucide-react。
 
-当前功能：Prompt 管理（多行编辑/自动保存/变量填空复制/置顶/使用统计/模板/搜索）+ 数据备份（设置页导入导出）。
+当前功能：Prompt 管理（多行编辑/自动保存/变量填空复制/置顶/使用统计/模板/搜索）+ 数据备份（设置页导入导出）+ 云端同步（备份到自己的 GitHub 私有仓库）。
 
 ## 常用命令
 
@@ -32,9 +32,9 @@ src/
 │   ├── types.ts          # FeatureModule 契约
 │   ├── registry.ts       # 功能注册表
 │   └── prompt-manager/   # 自包含功能模块（components/hooks/storage/utils/types）
-├── components/ui/        # 通用定制控件（Select、ConfirmDialog）
+├── components/ui/        # 通用定制控件（Select、Checkbox、ConfirmDialog）
 ├── components/layout/    # 共享布局
-├── lib/                  # 跨功能工具（settings、backup）
+├── lib/                  # 跨功能工具（settings、backup、github-sync、cloud-sync）
 └── styles/globals.css
 ```
 
@@ -62,6 +62,7 @@ src/
 | `prompt-manager:lastActive` | `{ promptId?, templateId?, view? }`：上次会话状态，侧边栏重开时恢复到同一张卡片与视图 |
 | `prompt-manager:templates` | `TemplateItem[]`：id/name/content/createdAt/updatedAt? + folderId?/order?（与 Prompt 共用目录，同样支持分组与拖动） |
 | `settings:defaultFeature` | 工作台默认功能 id |
+| `settings:sync:github` | `GitHubSyncConfig`：repo（owner/repo）/path/token/autoPush/autoPushDelayMinutes（1–120，默认 5）/lastPushedAt，云端同步配置；token 为明文，须用最小权限令牌 |
 
 WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态，读取时用 `??` 回退（如 `updatedAt ?? createdAt`），禁止要求迁移脚本。
 
@@ -69,13 +70,15 @@ WXT storage 会给键自动加 `local:` 前缀。旧数据缺新字段是常态�
 
 - **功能深链**：`workbench.html?feature=<id>`，workbench/App.tsx 解析并 `history.replaceState` 同步
 - **自动保存**：编辑停止后 1500ms 防抖合并落盘（`usePromptManager` 的 latestDraft）；**persist/patchPrompt 只重排本地状态、绝不用存储值整体替换**（否则会覆盖输入中的内容并把光标顶到末尾）；置顶/计数/移动目录等元数据走 `patchPrompt`（先冲刷草稿再写，防覆盖）
-- **入口形态**：点工具栏图标 → 侧边栏（`sidepanel`，容器宽度 < 460px 时切「列表 ⇄ 编辑器」单栏，并自动回到上次查看的卡片）；整页工作台仍由侧边栏 header 的「在完整工作台中打开」进入
+- **入口形态**：点工具栏图标 → 侧边栏（`sidepanel`；容器宽度 < 460px 时切「列表 ⇄ 编辑器」单栏，并自动回到上次查看的卡片）；整页工作台仍由侧边栏 header 的「在完整工作台中打开」进入
+- **两栏宽度模型**（改布局前必读）：列表栏宽度 = `min(336, 容器宽 / 2.1)`，编辑区 `min-width` = 列表栏 × 1.1，因此**编辑区永远比列表栏宽 10% 以上，两栏之和永远不超过容器**，展开/收起都不会改变容器总宽或产生横向溢出。宽度不做成可配置项：侧边栏外框的宽度由浏览器自己记住，内部再给一个宽度设置只会变成两套宽度定义。三个易错点：① **根元素必须带 `min-w-0`** —— 它是 flex item，默认 `min-width: auto` 会撑到内容宽度，于是「按容器宽算列表宽」测到的是溢出后的值，形成循环依赖、宽度永远收不回来；② **单栏判定用容器实际宽度，不用视口宽度**（工作台左侧有 208px 导航，视口够宽不代表留给功能的够），`useContainerWidth` 用 ResizeObserver + window resize 兜底；③ 编辑区宽度的比例关系有属性测试兜底（见 `utils.test.ts` 的「列表栏宽度」用例）
 - **目录**：`groupByFolder` 统一给 Prompt/模板分组（两层：顶层 → 子目录），未分组殿后（可折叠）；`folderSubtreeIds` 级联删除（含子目录），其中的条目回到未分组；层级约束由 `computeFolderDropOrder` 保证
 - **手动排序**：拖动产生 `order` —— 卡片（`computeDropOrder`）与目录（`computeFolderDropOrder`）各自独立；卡片排序 = 置顶 → order → 最近修改，新建/菜单移动插入分组顶部（`topOrderIn`）；目录排序 = order → createdAt，新建目录追加末尾（`bottomFolderOrderIn`）；未分组恒在最后且不可拖动
 - **拖拽隔离**：`draggingId`（卡片）与 `draggingFolderId`（目录）互斥，各自的 dragover/drop 处理先判断对方状态，避免交叉触发
 - **变量复制**：内容含 `{{变量}}` 时 CopyDialog 填空（`extractVariables`/`fillVariables`），空白值视为未填写保留原文
 - **编辑器（EditorPane）**：Prompt 编辑区与模板编辑区共用；行号规则为「一个逻辑行一个行号」——自动换行时用隐藏镜像元素测量真实折行位置（绝对定位行号），折行续行不显示行号；不换行时为普通逐行渲染。改编辑器务必保持两种模式下行号与内容对齐
 - **数据备份**：`lib/backup.ts` 的 `mergeBackup` 按 id 合并、时间戳新者胜；**校验必须容忍缺省字段**（只强制 id/content/createdAt，updatedAt 等后加字段可选），否则早期数据会被静默丢弃；UI 偏好不进备份
+- **云端同步**：分层是 `lib/github-sync.ts`（纯传输：配置、base64、Contents API 上传/下载/测试连接，不认识业务数据）+ `lib/cloud-sync.ts`（编排：采集快照、`mergeBackup` 落盘、自动上传），设置页只做 UI。要点：① **上传 = 用本地覆盖云端**，安全性由「每次上传都是一个 commit」保证，不做上传前合并（否则删除永远传不出去）；**恢复 = 按 `mergeBackup` 合并**，本地已删、云端还在的条目会被恢复回来，这是已知取舍。② 自动上传是落盘后按配置间隔防抖（`scheduleAutoPush` + 设置页可配 1–120 分钟，默认 5）+ 启动时 `initAutoPush` 补传（固定 10 秒，不跟随配置，因为推的是上次会话遗留改动），只跑在打开着的 UI 上下文里，后台不做定时任务。**间隔值一律经 `normalizeAutoPushDelay` 归一化**（非数字/越界回落默认），读取和保存两端都要过，别让 `NaN` 变成 setTimeout 的延时。③ GitHub 的 CORS 预检放行 `Authorization`/`PUT`，因此**不需要**加 `host_permissions`。④ 换存储后端只改 `github-sync.ts`，`cloud-sync.ts` 与设置页不用动
 - **预览服务器**：`scripts/preview-server.mjs` 注入 chrome.* shim（runtime.id 必须存在，否则 WXT polyfill 抛错），storage 用 sessionStorage 兜底持久化
 
 ## 版本发布
