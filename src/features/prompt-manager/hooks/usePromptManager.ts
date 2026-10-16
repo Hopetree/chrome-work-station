@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FolderItem, PromptItem, SaveStatus, TemplateItem } from '../types';
 import type { LastActiveState } from '../storage';
+import { initAutoPush, scheduleAutoPush } from '@/lib/cloud-sync';
 import {
   loadCollapsedGroups,
   loadEditorWrap,
@@ -87,6 +88,8 @@ export function usePromptManager() {
       const first = restored ?? sortPrompts(items)[0];
       if (first) setActiveId(first.id);
       setLoading(false);
+      // 上次上传后本地又改过（例如关面板前刚编辑完）就补一次上传
+      void initAutoPush();
     });
     return () => {
       cancelled = true;
@@ -130,6 +133,8 @@ export function usePromptManager() {
       // 只重排本地状态；不能用存储值整体替换，否则会覆盖用户正在输入的新内容并导致光标跳到末尾
       setPrompts((prev) => sortPrompts(prev));
       setStatus('saved');
+      // 落盘成功后再安排云端上传，避免把没保存的内容推上去
+      void scheduleAutoPush();
     } catch (error) {
       console.error('[prompt-manager] 自动保存失败', error);
       setStatus('dirty');
